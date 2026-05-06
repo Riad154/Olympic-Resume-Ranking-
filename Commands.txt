@@ -1,0 +1,34 @@
+python ranker.py --job AIDigital_Transformation-SrExecutive --jd jd_ai_exec.txt --rerank
+
+
+cd F:\Projects\resume_ranking
+venv\Scripts\activate
+streamlit run resume_app/Home.py
+
+docker exec -it postgres15 psql -U postgres -d resume_ranking
+
+
+
+
+Documentation:
+First of all, open docker and run the necessary containers, especially the postgres one
+Step - 01: Downloading the resume
+        * Open project folder
+        * Open Terminal/Powershell (Ctrl + ~)
+        * Run venv\Scripts\activate to activate the veetual Environment
+        * Run bdjobs_login.py to save the login session
+        * Run bdjobs_downloader.py to start the downloading job
+        * It will ask for a name of the job, give appropriate name, this will be the downloaded resume folder name
+        * It will start downloading and saving the resumes
+        * If the job fails midway, do the same with the same project/folder name, the job will continue from where it failed
+
+Step - 02: Start the ranking job
+        * After the resumes are all downloaded, run the "streamlit run resume_app/Home.py"   command.
+        * Check if the venv is activated
+        * Go to new job and fulfill the form and the prompt will be generated, copy and paste that prompt, check the folder name of the downloaded cvs and then run the command
+        * If a job is failed midway, run the command again, it will skip the already ranked ones, and start from the point of failure
+        * If a job is needed to reranked with newer parameters, add "--rerank" at the end of the command
+        * Example: python ranker.py --job "AIDigital_Transformation-SrExecutive" --jd "F:\Projects\resume_ranking\downloaded_resumes\AIDigital_Transformation-SrExecutive\_jd_prompt.txt" --rerank
+
+
+After the ranking is done, we go to UI and refresh. The job will be there. And the rest is self-explanatory.

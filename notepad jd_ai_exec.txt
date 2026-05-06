@@ -1,0 +1,89 @@
+Summary
+Vacancy:
+--
+Location: Dhaka
+Salary:
+Negotiable
+Experience:
+1 to 4 years
+Published:
+03 Mar 2026
+Applicants are encouraged to submit Video CV.
+
+
+To access Application Insights Get Bdjobs Pro
+Requirements
+
+Education
+
+Bachelor of Science (BSc) in Computer Science & Engineering (CSE)
+Required education may be relaxed for the those candidates who have proven practical skills on AI/MV and experience on project
+Skilled candidates with strong portfolios are encouraged to apply.
+Experience
+
+1 to 4 years
+The applicants should have experience in the following business area(s): Manufacturing (FMCG)
+Additional Requirements
+
+Strong Python programming ability.
+
+Computer Vision fundamentals (OpenCV or similar).
+
+Object detection / deep learning models.
+
+Machine Learning / Deep Learning fundamentals.
+
+Data handling (NumPy, Pandas).
+
+Basic database concepts and querying. General, software/system troubleshooting capability.
+
+Good communication skills in both English and Bangla.
+
+Able to work independently and under pressure.
+
+Should be energetic, proactive, result oriented and hard working.
+
+Strong analytical ability.
+
+High level of professional integrity.
+
+Responsibilities & Context
+
+Job role: Design, develop, deploy and support AI, Machine vision and industrial process automation solutions across production and operational processes, including data-driven analytics and operational enhancements.
+
+Key responsibilities:
+
+Al & Machine Vision Development
+
+i) Develop and train computer vision models (detection, tracking, counting, classification)
+ii) Build Al/ML models for prediction, anomaly detection and operational analytics
+iii) Prepare and manage datasets (image, video, and structured data)
+iv) Optimize model accuracy and performance for real-world industrial environments
+System Deployment & Implementation
+
+i) Support deployment of AI/MV systems in factories and operational sites
+ii) Assist in camera setup, data capture pipelines and edge processing systems
+iii) Integrate Al modules with dashboards, databases, and business applications
+iv) Conduct field testing, validation, calibration
+Data & integration
+
+i) Process and analyze industrial and operational datasets
+ii) Support integration with ERP/lCT systems where required
+Maintain data pipelines and Al workftow components
+Operations & Continuous improvement
+
+i) Monitor deployed Al systems and improve performance
+ii) Troubleshoot detection, data, or deployment issues
+iii) Maintain technicaI documentation and implementation records
+iv) Collaborate with lCT, ERP and factory teams
+Compensation & Other Benefits
+
+Attractive salary along with other fringe benefits will be offered to the deserved candidates as per company policy.
+
+Employment Status
+
+Full Time
+
+Job Location
+
+Dhaka
