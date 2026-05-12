@@ -5,8 +5,10 @@ Olympic Industries PLC — HR Intelligence Platform
 
 import io
 import os
+import re
 import csv
 import sys
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -30,7 +32,7 @@ except ImportError:
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 PG_CONN = {
-    "host":     os.environ.get("PG_HOST", "host.docker.internal"),
+    "host":     os.environ.get("PG_HOST", "localhost"),
     "port":     int(os.environ.get("PG_PORT", "5432")),
     "dbname":   os.environ.get("PG_DBNAME", "resume_ranking"),
     "user":     os.environ.get("PG_USER", "postgres"),
@@ -1023,6 +1025,7 @@ def ensure_schema(conn) -> None:
     candidate `job_label` not yet registered.  Idempotent and cheap.
     """
     with conn.cursor() as cur:
+        cur.execute("SET search_path = public")
         cur.execute(SCHEMA_SQL)
         cur.execute(MIGRATION_SQL)
         # Backfill: any candidate.job_label with no jobs row → Uncategorized.
@@ -2146,14 +2149,38 @@ def render_sidebar():
 
         # ── Single navigation section ──────────────────────────────────────────
         st.markdown('<div class="nav-label">Navigation</div>', unsafe_allow_html=True)
-        st.page_link("Home.py",                           label="📋  Dashboard")
-        st.page_link("pages/0_Download_CVs.py",           label="⬇️⬆️ Download/Upload CVs")
-        st.page_link("pages/1_Department_Rankings.py",    label="🏢  Department Rankings")
-        st.page_link("pages/2_Job_Rankings.py",           label="📊  Job Rankings")
-        st.page_link("pages/3_New_Job.py",                label="📝  New Job Posting")
-        st.page_link("pages/4_Processing_Status.py",      label="⏳  Processing Status")
-        st.page_link("pages/6_Compare_Candidates.py",     label="⚖️  Compare Candidates")
-        st.page_link("pages/5_Settings.py",               label="⚙️  Settings")
+
+        def _safe_page_link(page: str, label: str) -> None:
+            """Wrap st.page_link in try-except for Streamlit Cloud compatibility.
+            Falls back to a markdown link if page_link raises (e.g. KeyError on url_pathname)."""
+            try:
+                st.page_link(page, label=label)
+            except Exception:
+                # Fallback: build Streamlit Cloud URL path
+                # pages/1_Department_Rankings.py -> /Department_Rankings
+                if page == "Home.py":
+                    href = "/"
+                else:
+                    name = page.replace("pages/", "").replace(".py", "")
+                    # Strip leading number prefix (e.g. "0_", "1_", "6_")
+                    name = re.sub(r"^\d+_", "", name)
+                    href = f"/{name}"
+                st.markdown(
+                    f"<a href='{href}' style='display:block;padding:0.35rem 0.6rem;"
+                    f"color:#FFFFFF;text-decoration:none;border-radius:6px;"
+                    f"font-size:0.9rem;'>"
+                    f"{label}</a>",
+                    unsafe_allow_html=True,
+                )
+
+        _safe_page_link("Home.py",                           label="📋  Dashboard")
+        _safe_page_link("pages/0_Download_CVs.py",           label="⬇️⬆️ Download/Upload CVs")
+        _safe_page_link("pages/1_Department_Rankings.py",    label="🏢  Department Rankings")
+        _safe_page_link("pages/2_Job_Rankings.py",           label="📊  Job Rankings")
+        _safe_page_link("pages/3_New_Job.py",                label="📝  New Job Posting")
+        _safe_page_link("pages/4_Processing_Status.py",      label="⏳  Processing Status")
+        _safe_page_link("pages/6_Compare_Candidates.py",     label="⚖️  Compare Candidates")
+        _safe_page_link("pages/5_Settings.py",               label="⚙️  Settings")
 
 def fetch_global_stats(conn=None) -> dict:
     """Global candidate stats. `conn` is accepted for API symmetry but we
