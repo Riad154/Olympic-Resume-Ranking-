@@ -9,7 +9,7 @@ import streamlit as st
 from db import (
     get_conn,
     fetch_all_jobs, fetch_departments, fetch_global_stats, set_job_department,
-    get_css, init_theme, render_sidebar,
+    get_css, init_theme, render_sidebar, safe_switch_page,
     DEPARTMENT_LIST,
     BDJOBS_JOB_REGISTRY,
 )
@@ -115,7 +115,7 @@ with col_btn:
         if sel_job and sel_job != "— no postings —":
             st.session_state["selected_dept"] = sel_dept
             st.session_state["selected_job"]  = sel_job
-            st.switch_page("pages/1_Department_Rankings.py")
+            safe_switch_page("pages/1_Department_Rankings.py")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -204,7 +204,7 @@ else:
                         st.session_state["jr_mode"]          = "detail"
                         st.session_state["jr_incoming_via"]  = "dashboard"
                         st.session_state["selected_dept"]    = dept
-                        st.switch_page("pages/2_Job_Rankings.py")
+                        safe_switch_page("pages/2_Job_Rankings.py")
 
 # ── Assign Departments UI (only shows if there are Uncategorized jobs) ────────
 if not jobs_df.empty:

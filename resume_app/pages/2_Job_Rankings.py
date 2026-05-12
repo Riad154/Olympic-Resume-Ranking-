@@ -28,6 +28,7 @@ from db import (
     render_processing_banner,
     init_theme,
     render_sidebar,
+    safe_switch_page,
 )
 
 # ── Page config ──────────────────────────────────────────────────────────────
@@ -635,7 +636,7 @@ def render_detail():
             ):
                 st.session_state["compare_ids"] = selected_compare
                 st.session_state["compare_job"] = job_label
-                st.switch_page("pages/6_Compare_Candidates.py")
+                safe_switch_page("pages/6_Compare_Candidates.py")
         with c2:
             if len(selected_compare) < 2:
                 st.caption("Select at least 2 candidates to compare.")

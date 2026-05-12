@@ -2182,6 +2182,26 @@ def render_sidebar():
         _safe_page_link("pages/6_Compare_Candidates.py",     label="⚖️  Compare Candidates")
         _safe_page_link("pages/5_Settings.py",               label="⚙️  Settings")
 
+def safe_switch_page(page: str) -> None:
+    """Cloud-safe wrapper around st.switch_page.
+    Streamlit Cloud may fail to resolve page paths, so we fall back
+    to st.page_link redirect or markdown-based redirect."""
+    try:
+        st.switch_page(page)
+    except Exception:
+        # Fallback: use st.page_link as redirect trigger
+        try:
+            st.page_link(page)
+        except Exception:
+            name = page.replace("pages/", "").replace(".py", "")
+            name = re.sub(r"^\d+_", "", name)
+            st.markdown(
+                f'<meta http-equiv="refresh" content="0;URL=/{name}">',
+                unsafe_allow_html=True,
+            )
+            st.stop()
+
+
 def fetch_global_stats(conn=None) -> dict:
     """Global candidate stats. `conn` is accepted for API symmetry but we
     always open a fresh autocommit connection so Streamlit cache can't serve

@@ -27,7 +27,7 @@ import pandas as pd
 import streamlit as st
 
 from db import (
-    get_css, init_theme, render_sidebar,
+    get_css, init_theme, render_sidebar, safe_switch_page,
     DEPARTMENT_LIST, list_download_folders,
     RESUMES_BASE, RANKER_PATH, VENV_PYTHON,
     get_conn, save_bdjobs_credentials, get_bdjobs_credentials,
@@ -771,14 +771,14 @@ elif phase == "done":
     cA, cB, cC, cD = st.columns(4)
     if cA.button("📊 Open Job Rankings", type="primary", use_container_width=True):
         st.session_state["selected_job"] = dl_label
-        st.switch_page("pages/2_Job_Rankings.py")
+        safe_switch_page("pages/2_Job_Rankings.py")
     dl_folder = str(Path(RESUMES_BASE) / dl_label) if dl_label else ""
     if cB.button("📂 Open folder", use_container_width=True,
                  disabled=not (dl_folder and os.path.isdir(dl_folder))):
         _open_in_explorer(dl_folder)
         st.toast(f"Opened {dl_folder} in Explorer")
     if cC.button("🏢 Department Rankings", use_container_width=True):
-        st.switch_page("pages/1_Department_Rankings.py")
+        safe_switch_page("pages/1_Department_Rankings.py")
     if cD.button("⟳ Start another", use_container_width=True):
         for k in ("bdjobs_phase", "bdjobs_dl_proc", "bdjobs_dl_log",
                   "bdjobs_dl_label", "bdjobs_dl_dept", "bdjobs_dl_url",
@@ -1058,7 +1058,7 @@ with upload_tab1:
                     
                     # Navigate to job rankings
                     st.session_state["selected_job"] = safe_label
-                    st.switch_page("pages/2_Job_Rankings.py")
+                    safe_switch_page("pages/2_Job_Rankings.py")
                     
                 except Exception as e:
                     st.error(f"❌ Failed to start ranker: {e}")
@@ -1231,7 +1231,7 @@ else:
             st.toast(f"Opened {cv_dir} in Explorer")
         if bC.button("📊 Job Rankings", key=f"open_{sel}", use_container_width=True):
             st.session_state["selected_job"] = sel
-            st.switch_page("pages/2_Job_Rankings.py")
+            safe_switch_page("pages/2_Job_Rankings.py")
         if bD.button("📝 Job Posting", key=f"new_{sel}", use_container_width=True):
             st.session_state["preset_job_label"] = sel
-            st.switch_page("pages/3_New_Job.py")
+            safe_switch_page("pages/3_New_Job.py")

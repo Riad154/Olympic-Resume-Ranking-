@@ -19,7 +19,7 @@ from db import (
     get_conn,
     fetch_departments, fetch_jobs_by_department, fetch_candidates_by_department,
     to_excel, save_hr_override, delete_candidate,
-    get_css, init_theme, render_sidebar,
+    get_css, init_theme, render_sidebar, safe_switch_page,
     VERDICT_CFG, SCORE_DIMS,
     BDJOBS_JOB_REGISTRY,
     get_active_processing, render_processing_banner,
@@ -298,7 +298,7 @@ def _render_open_roles_for_dept(department: str, job_rows_for_dept: list, conn):
                     st.session_state["jr_active_job"]    = label
                     st.session_state["jr_mode"]          = "detail"
                     st.session_state["jr_incoming_via"] = "dept"
-                    st.switch_page("pages/2_Job_Rankings.py")
+                    safe_switch_page("pages/2_Job_Rankings.py")
 
     st.markdown("<hr>", unsafe_allow_html=True)
 

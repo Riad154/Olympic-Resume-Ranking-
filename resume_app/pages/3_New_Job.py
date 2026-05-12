@@ -11,7 +11,7 @@ import streamlit as st
 from datetime import datetime
 from pathlib import Path
 from db import (
-    render_sidebar,
+    render_sidebar, safe_switch_page,
     get_conn, create_job, ingest_metadata, update_job_status,
     get_css, init_theme, build_prompt_preview,
     DEPARTMENTS, EXPERIENCE_OPTIONS, EDUCATION_OPTIONS,
@@ -647,4 +647,4 @@ if submit_clicked:
         st.markdown("---")
         if st.button("Go to Ranking Results →", type="primary", use_container_width=True):
             st.session_state["selected_job"] = job_label
-            st.switch_page("pages/2_Job_Rankings.py")
+            safe_switch_page("pages/2_Job_Rankings.py")

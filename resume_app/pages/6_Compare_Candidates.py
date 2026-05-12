@@ -11,7 +11,7 @@ import streamlit as st
 import pandas as pd
 
 from db import (
-    get_conn, fetch_candidates, get_css, init_theme, render_sidebar,
+    get_conn, fetch_candidates, get_css, init_theme, render_sidebar, safe_switch_page,
     SCORE_DIMS, VERDICT_CFG, _build_detail_columns,
 )
 
@@ -54,7 +54,7 @@ if not compare_job or len(compare_ids) < 2:
         "click *Open Comparison*.",
     )
     if st.button("← Back to Job Rankings"):
-        st.switch_page("pages/2_Job_Rankings.py")
+        safe_switch_page("pages/2_Job_Rankings.py")
     st.stop()
 
 # ── Load -------------------------------------------------------------------------
@@ -261,7 +261,7 @@ st.download_button(
 b1, b2 = st.columns(2)
 with b1:
     if st.button("← Back to Job Rankings", use_container_width=True):
-        st.switch_page("pages/2_Job_Rankings.py")
+        safe_switch_page("pages/2_Job_Rankings.py")
 with b2:
     if st.button("Clear comparison selection", type="secondary",
                  use_container_width=True):
