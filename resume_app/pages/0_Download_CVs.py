@@ -31,7 +31,7 @@ from db import (
     DEPARTMENT_LIST, list_download_folders,
     RESUMES_BASE, RANKER_PATH, VENV_PYTHON,
     get_conn, save_bdjobs_credentials, get_bdjobs_credentials,
-    has_bdjobs_credentials,
+    has_bdjobs_credentials, _is_streamlit_cloud,
 )
 
 # ── Page chrome ────────────────────────────────────────────────────────────────
@@ -610,9 +610,21 @@ elif login_proc is not None:
     for k in ("bdjobs_login_proc", "bdjobs_login_log"):
         st.session_state.pop(k, None)
 else:
+    on_cloud = _is_streamlit_cloud()
+    if on_cloud:
+        st.warning(
+            "☁️ **BDJobs browser automation is not available on Streamlit Cloud.**\n\n"
+            "Playwright browsers cannot be installed on Community Cloud servers. "
+            "Please use this feature on your local Windows workstation instead.",
+            icon="⚠️",
+        )
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
-        if st.button("🔐 Manual Re-login (Browser)", type="primary", use_container_width=True, key="btn_manual_login"):
+        if st.button(
+            "🔐 Manual Re-login (Browser)",
+            type="primary", use_container_width=True, key="btn_manual_login",
+            disabled=on_cloud,
+        ):
             proc, lp = _spawn_login()
             st.session_state["bdjobs_login_proc"] = proc
             st.session_state["bdjobs_login_log"] = lp
@@ -624,7 +636,7 @@ else:
         if st.button(
             "🤖 Auto Re-login (Headless)" if has_creds else "🤖 Auto Re-login (Set credentials first)",
             type="secondary", use_container_width=True, key="btn_auto_login",
-            disabled=not has_creds,
+            disabled=(not has_creds) or on_cloud,
         ):
             proc, lp = _spawn_auto_login()
             st.session_state["bdjobs_login_proc"] = proc
@@ -875,7 +887,13 @@ else:
         submitted = c2.form_submit_button("🚀 Start download", type="primary")
 
     if submitted:
-        if not url or not jobno:
+        if _is_streamlit_cloud():
+            st.error(
+                "❌ BDJobs download is not available on Streamlit Cloud.\n\n"
+                "Please run the downloader on your local Windows workstation, "
+                "then upload the downloaded CVs via the Upload tab below."
+            )
+        elif not url or not jobno:
             st.error("❌ URL is invalid — could not find a `jobno=` parameter.")
         elif not label.strip():
             st.error("❌ Job label is required.")
@@ -1001,6 +1019,13 @@ with upload_tab1:
                     st.warning(f"⚠️ {len(ocr_errors)} file(s) failed OCR: {', '.join(ocr_errors[:3])}{'...' if len(ocr_errors) > 3 else ''}")
         with btn_col3:
             if st.button("⚡ Start Ranking Job", type="primary", key="btn_cv_rank", use_container_width=True):
+                if _is_streamlit_cloud():
+                    st.error(
+                        "❌ AI ranking is not available on Streamlit Cloud.\n\n"
+                        "The ranker requires a local Ollama LLM server. "
+                        "Please run ranking on your local Windows workstation."
+                    )
+                    st.stop()
                 # First ensure files are processed
                 if "last_upload_job" not in st.session_state or st.session_state["last_upload_job"] != cv_job:
                     # Auto-process files first

@@ -16,6 +16,7 @@ from db import (
     get_css, init_theme, build_prompt_preview,
     DEPARTMENTS, EXPERIENCE_OPTIONS, EDUCATION_OPTIONS,
     COMMON_SKILLS, SKILL_DOMAINS, RED_FLAG_PRESETS, RESUMES_BASE, RANKER_PATH, VENV_PYTHON,
+    _is_streamlit_cloud,
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -509,6 +510,13 @@ if submit_clicked:
 
         # Launch the ranker in the background -- no terminal needed.
         ranker_started = False
+        if _is_streamlit_cloud():
+            st.error(
+                "❌ AI ranking is not available on Streamlit Cloud.\n\n"
+                "The ranker requires a local Ollama LLM server. "
+                "Please run ranking on your local Windows workstation."
+            )
+            st.stop()
         proc = None
         log_path = None
         try:

@@ -29,6 +29,7 @@ from db import (
     init_theme,
     render_sidebar,
     safe_switch_page,
+    _is_streamlit_cloud,
 )
 
 # ── Page config ──────────────────────────────────────────────────────────────
@@ -1092,6 +1093,11 @@ def render_detail():
             if is_suspect:
                 st.warning("⚠️ This candidate may have been scored incorrectly (all dimensions are identical). Consider re-ranking.")
             if st.button("🔄  Re-rank This Candidate", type="secondary", key=f"rerank_{apply_id}", use_container_width=True):
+                if _is_streamlit_cloud():
+                    st.error(
+                        "❌ Re-ranking requires a local Ollama LLM server and is not available on Streamlit Cloud."
+                    )
+                    st.stop()
                 try:
                     import subprocess as _sp
                     from pathlib import Path as _Path

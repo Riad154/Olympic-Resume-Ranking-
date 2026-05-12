@@ -2228,6 +2228,14 @@ def fetch_global_stats(conn=None) -> dict:
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
 
+def _is_streamlit_cloud() -> bool:
+    """True when running on Streamlit Community Cloud (no GUI, no local Ollama/Playwright)."""
+    import platform
+    return (
+        os.environ.get("STREAMLIT_SHARING", "") == "true"
+        or (platform.system() == "Linux" and os.environ.get("DISPLAY") is None)
+    )
+
 CSS = """<style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
