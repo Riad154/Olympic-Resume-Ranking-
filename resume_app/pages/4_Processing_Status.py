@@ -8,6 +8,7 @@ and surfaces progress, ETA, errors, and GPU/Ollama status in real time.
 from __future__ import annotations
 
 import os
+import sys
 import json
 import time
 import datetime
@@ -16,7 +17,7 @@ from pathlib import Path
 import requests
 import streamlit as st
 
-from db import get_css, init_theme, render_sidebar
+from db import get_css, init_theme, render_sidebar, _is_streamlit_cloud
 
 
 # ── Config / paths ────────────────────────────────────────────────────────────
@@ -27,6 +28,84 @@ RESUMES_BASE = Path(os.environ.get(
     str(BASE_DIR / "downloaded_resumes"),
 ))
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+
+# ── Cloud detection ─────────────────────────────────────────────────────────────
+ON_CLOUD = _is_streamlit_cloud()
+
+# ── Cloud: show GitHub Actions status instead of local logs ───────────────────
+if ON_CLOUD:
+    st.markdown(get_css(), unsafe_allow_html=True)
+    render_sidebar()
+
+    st.markdown('<div class="page-title">Processing Status</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="page-sub">Ranker &amp; scraper status on Streamlit Cloud</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
+    st.info(
+        "On Streamlit Community Cloud, local file-based progress logs and GPU/Ollama monitoring are not available. "
+        "Ranker runs happen via **GitHub Actions** on Ubuntu runners. "
+        "Downloaded CVs are stored in your **PostgreSQL database** (not local disk).",
+        icon="☁️",
+    )
+
+    # Show latest GitHub Actions run status
+    st.markdown("### 🚀 GitHub Actions — BDJobs Scraper")
+    try:
+        sys.path.insert(0, str(BASE_DIR / "scripts"))
+        from github_actions import _get_token, _get_repo, get_latest_run_status
+        token = _get_token()
+        repo = _get_repo()
+        if token:
+            run = get_latest_run_status(repo, token)
+            if run.get("status") == "error":
+                st.error(f"Could not fetch run status: {run.get('msg', 'Unknown error')}")
+            else:
+                status = run.get("status", "unknown")
+                conclusion = run.get("conclusion", "—")
+                created = run.get("created_at", "—")
+                url = run.get("html_url", f"https://github.com/{repo}/actions")
+
+                status_icon = {
+                    "completed": "✅",
+                    "in_progress": "🔄",
+                    "queued": "⏳",
+                    "waiting": "⏳",
+                    "requested": "⏳",
+                }.get(status, "❓")
+
+                st.markdown(f"**Latest run:** {status_icon} `{status}` — conclusion: `{conclusion}`")
+                st.markdown(f"**Created:** {created}")
+                st.link_button("View on GitHub →", url, type="secondary")
+        else:
+            st.warning("No GH_TOKEN configured. Cannot fetch GitHub Actions status.")
+    except Exception as e:
+        st.error(f"Failed to fetch GitHub Actions status: {e}")
+
+    # Database candidate count
+    st.markdown("---")
+    st.markdown("### 🗄️ Database Overview")
+    try:
+        from db import get_conn
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM candidate")
+            total_cands = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM job")
+            total_jobs = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM candidate WHERE ollama_summary IS NOT NULL AND ollama_summary != ''"
+            )
+            ranked_cands = cur.fetchone()[0]
+        st.metric("Total Candidates", total_cands)
+        st.metric("Total Jobs", total_jobs)
+        st.metric("Ranked (with LLM summary)", ranked_cands)
+    except Exception as e:
+        st.error(f"Database error: {e}")
+
+    st.stop()
 
 st.set_page_config(
     page_title="Processing Status — HR Intelligence",
@@ -155,7 +234,7 @@ def ollama_ps() -> list[dict] | None:
         return None
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ── Sidebar (local only) ────────────────────────────────────────────────────
 
 jobs = list_job_folders()
 if not jobs:
