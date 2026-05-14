@@ -5,6 +5,74 @@ import os
 import requests
 
 
+def _get_token() -> str | None:
+    """Read GH_TOKEN from os.environ or st.secrets."""
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        return token.strip()
+    # Fallback: try st.secrets (Streamlit Cloud injects these too, but just in case)
+    try:
+        import streamlit as st
+        token = st.secrets.get("GH_TOKEN") or st.secrets.get("GITHUB_TOKEN")
+        if token:
+            return str(token).strip()
+    except Exception:
+        pass
+    return None
+
+
+def _get_repo() -> str:
+    """Read GH_REPO from os.environ or st.secrets."""
+    repo = os.environ.get("GH_REPO")
+    if repo:
+        return repo.strip()
+    try:
+        import streamlit as st
+        repo = st.secrets.get("GH_REPO")
+        if repo:
+            return str(repo).strip()
+    except Exception:
+        pass
+    return "Riad154/Olympic-Resume-Ranking-"
+
+
+def test_github_token() -> tuple[bool, str]:
+    """Validate the GitHub token by making a simple API call."""
+    token = _get_token()
+    if not token:
+        return False, "No GH_TOKEN found in environment or Streamlit secrets."
+    if not token.startswith("ghp_"):
+        return False, f"Token does not start with 'ghp_' (got '{token[:4]}...'). Use a classic PAT."
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    try:
+        resp = requests.get("https://api.github.com/user", headers=headers, timeout=30)
+        if resp.status_code == 200:
+            user = resp.json().get("login", "unknown")
+            scopes = resp.headers.get("X-OAuth-Scopes", "none")
+            return True, (
+                f"Token is valid. Authenticated as **{user}**.\n\n"
+                f"Granted scopes: `{scopes}`\n\n"
+                f"Required scopes for workflow dispatch: `repo` + `workflow`"
+            )
+        elif resp.status_code == 401:
+            return False, (
+                "Token rejected by GitHub (401).\n\n"
+                "Most likely causes:\n"
+                "1. Token was copied incompletely (missing last few characters)\n"
+                "2. Token was revoked by GitHub after creation\n"
+                "3. Token is a fine-grained token (should be classic PAT)\n"
+                "4. Token expired immediately (rare, but happens)\n\n"
+                "Fix: Delete the token on GitHub, create a new one, copy it fully, update Streamlit secrets."
+            )
+        else:
+            return False, f"GitHub API returned {resp.status_code}: {resp.text[:200]}"
+    except Exception as e:
+        return False, f"Network error: {e}"
+
+
 def trigger_bdjobs_scrape(
     job_label: str,
     job_url: str,
@@ -16,8 +84,8 @@ def trigger_bdjobs_scrape(
 
     Returns (success: bool, message: str)
     """
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    repo = os.environ.get("GH_REPO", "Riad154/Olympic-Resume-Ranking-")
+    token = _get_token()
+    repo = _get_repo()
 
     if not token:
         return False, (
@@ -27,8 +95,7 @@ def trigger_bdjobs_scrape(
         )
 
     # Validate token format
-    token = token.strip()
-    if not token.startswith("ghp_") and not token.startswith("github_pat_"):
+    if not token.startswith("ghp_"):
         return False, (
             f"Invalid token format. Your token starts with '{token[:4]}...' but must start with 'ghp_' (classic PAT).\n\n"
             "Please create a **Personal Access Token (classic)** at:\n"

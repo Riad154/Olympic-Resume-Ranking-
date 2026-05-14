@@ -574,6 +574,18 @@ if on_cloud:
             "🚀 Trigger GitHub Actions Sync", type="primary", use_container_width=True,
         )
 
+    # ── Test token button for diagnostics ──────────────────────────────────
+    st.markdown("---")
+    with st.expander("🔧 Diagnostics: Test GitHub Token", expanded=False):
+        if st.button("🧪 Test GitHub Token", key="test_gha_token"):
+            sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+            from github_actions import test_github_token
+            ok, msg = test_github_token()
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+
     if submitted_gha:
         if not gha_label.strip() or not gha_url.strip():
             st.error("Job label and URL are required.")
