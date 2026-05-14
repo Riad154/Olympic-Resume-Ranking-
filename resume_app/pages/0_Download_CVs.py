@@ -543,6 +543,7 @@ st.caption("Pull applicant profiles + uploaded CVs straight from BDJobs Recruite
 # ══════════════════════════════════════════════════════════════════════════════
 conn = get_conn()
 on_cloud = _is_streamlit_cloud()
+status = _session_status()  # always define — used in Section B idle phase too
 
 if on_cloud:
     # ── Cloud: GitHub Actions sync form only ─────────────────────────────────
@@ -593,7 +594,6 @@ if on_cloud:
                 st.error(msg)
 else:
     # ── Local: full BDJobs session UI ────────────────────────────────────────
-    status = _session_status()
     state_icon = {"missing": "🔴", "stale": "🟡", "fresh": "🟢", "unknown": "🟡"}.get(status["state"], "⚪")
 
     st.markdown("### 🔐 BDJobs session")
@@ -848,7 +848,7 @@ elif phase == "done":
             st.code(_read_log(rank_log) or "(no output)", language="text")
 
 else:
-    if status["state"] in ("missing", "stale", "unknown"):
+    if not on_cloud and status["state"] in ("missing", "stale", "unknown"):
         st.warning("⚠️ Your BDJobs session may not be valid. Refresh the login above before starting.")
 
     with st.form("bdjobs_dl_form", clear_on_submit=False):
