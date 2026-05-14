@@ -20,7 +20,26 @@ def trigger_bdjobs_scrape(
     repo = os.environ.get("GH_REPO", "Riad154/Olympic-Resume-Ranking-")
 
     if not token:
-        return False, "GitHub token not configured. Set GH_TOKEN in Streamlit secrets."
+        return False, (
+            "GitHub token not configured.\n\n"
+            "Go to your app on Streamlit Cloud → **⋮ → Settings → Secrets** and add:\n"
+            '```\nGH_TOKEN = "ghp_your_classic_pat_here"\n```'
+        )
+
+    # Validate token format
+    token = token.strip()
+    if not token.startswith("ghp_") and not token.startswith("github_pat_"):
+        return False, (
+            f"Invalid token format. Your token starts with '{token[:4]}...' but must start with 'ghp_' (classic PAT).\n\n"
+            "Please create a **Personal Access Token (classic)** at:\n"
+            "https://github.com/settings/tokens\n\n"
+            "Required scopes: ✅ repo, ✅ workflow"
+        )
+    if len(token) < 30:
+        return False, (
+            f"Token looks too short ({len(token)} chars). "
+            "Make sure you copied the FULL token from GitHub."
+        )
 
     url = f"https://api.github.com/repos/{repo}/actions/workflows/bdjobs_scraper.yml/dispatches"
     headers = {
@@ -47,6 +66,15 @@ def trigger_bdjobs_scrape(
             )
         elif resp.status_code == 404:
             return False, f"Workflow not found. Ensure `.github/workflows/bdjobs_scraper.yml` exists in `{repo}`."
+        elif resp.status_code == 401:
+            return False, (
+                f"GitHub API error 401: Bad credentials.\n\n"
+                "Your token is invalid or expired. Please:\n"
+                "1. Go to https://github.com/settings/tokens\n"
+                "2. Check if your token is expired (red dot = expired)\n"
+                "3. Generate a new **classic** token with scopes: repo + workflow\n"
+                "4. Update GH_TOKEN in Streamlit Cloud secrets and reboot the app."
+            )
         else:
             return False, f"GitHub API error {resp.status_code}: {resp.text[:500]}"
     except requests.RequestException as e:
