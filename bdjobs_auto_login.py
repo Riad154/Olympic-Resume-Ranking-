@@ -47,11 +47,18 @@ def main():
     if args.username and args.password:
         creds = {"username": args.username, "password": args.password}
     else:
-        creds = _get_db_creds()
+        # Try env vars next (used by GitHub Actions)
+        env_user = os.environ.get("BDJOBS_USER")
+        env_pass = os.environ.get("BDJOBS_PASS")
+        if env_user and env_pass:
+            creds = {"username": env_user, "password": env_pass}
+        else:
+            creds = _get_db_creds()
 
     if not creds:
-        print("[ERROR] No BDJobs credentials found in database.")
-        print("        Go to Settings → BDJobs Credentials to store them.")
+        print("[ERROR] No BDJobs credentials found.")
+        print("        Provide --username/--password, set BDJOBS_USER/BDJOBS_PASS env vars,")
+        print("        or store them in the PostgreSQL database.")
         sys.exit(1)
 
     CONTEXT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bdjobs_session")

@@ -25,9 +25,13 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to commit downloaded CVs back to repo
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -47,35 +51,45 @@ jobs:
         env:
           BDJOBS_USER: ${{ secrets.BDJOBS_USER }}
           BDJOBS_PASS: ${{ secrets.BDJOBS_PASS }}
+          PG_HOST:     ${{ secrets.PG_HOST }}
+          PG_PORT:     ${{ secrets.PG_PORT }}
+          PG_DBNAME:   ${{ secrets.PG_DBNAME }}
+          PG_USER:     ${{ secrets.PG_USER }}
+          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
         run: |
-          python bdjobs_auto_login.py --headless --wait-for-flag _login_done.flag
+          python bdjobs_auto_login.py \
+            --username "${{ secrets.BDJOBS_USER }}" \
+            --password "${{ secrets.BDJOBS_PASS }}" \
+            --headless
 
       - name: Run BDJobs downloader
         env:
-          PG_HOST: ${{ secrets.PG_HOST }}
-          PG_PORT: ${{ secrets.PG_PORT }}
-          PG_DBNAME: ${{ secrets.PG_DBNAME }}
-          PG_USER: ${{ secrets.PG_USER }}
+          PG_HOST:     ${{ secrets.PG_HOST }}
+          PG_PORT:     ${{ secrets.PG_PORT }}
+          PG_DBNAME:   ${{ secrets.PG_DBNAME }}
+          PG_USER:     ${{ secrets.PG_USER }}
           PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
         run: |
           python bdjobs_downloader.py \
             --job "${{ github.event.inputs.job_label }}" \
             --url "${{ github.event.inputs.job_url }}" \
             --max-candidates ${{ github.event.inputs.max_candidates || 0 }} \
-            --department "${{ github.event.inputs.department || 'Uncategorized' }}" \
-            --wait-for-flag _download_done.flag
+            --department "${{ github.event.inputs.department || 'Uncategorized' }}"
 
       - name: Commit downloaded CVs to repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
           git add downloaded_resumes/
           # Only commit if there are changes
           if git diff --cached --quiet; then
             echo "No new CVs to commit"
           else
             git commit -m "Add CVs for ${{ github.event.inputs.job_label }} via GitHub Actions"
-            git push
+            git push origin ${{ github.ref_name }}
           fi
 
       - name: Upload workflow artifact (CVs)
