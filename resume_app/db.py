@@ -2231,10 +2231,19 @@ def fetch_global_stats(conn=None) -> dict:
 def _is_streamlit_cloud() -> bool:
     """True when running on Streamlit Community Cloud (no GUI, no local Ollama/Playwright)."""
     import platform
-    return (
-        os.environ.get("STREAMLIT_SHARING", "") == "true"
-        or (platform.system() == "Linux" and os.environ.get("DISPLAY") is None)
-    )
+    # Check 1: explicit Streamlit Cloud env var
+    if os.environ.get("STREAMLIT_SHARING", "").lower() == "true":
+        return True
+    # Check 2: Streamlit server port is set (always present on Cloud)
+    if os.environ.get("STREAMLIT_SERVER_PORT"):
+        return True
+    # Check 3: Linux with no DISPLAY (headless server)
+    if platform.system() == "Linux" and os.environ.get("DISPLAY") is None:
+        return True
+    # Check 4: Cloud mounts repos under /mount/src
+    if Path("/mount/src").exists():
+        return True
+    return False
 
 CSS = """<style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
