@@ -612,36 +612,75 @@ elif login_proc is not None:
 else:
     on_cloud = _is_streamlit_cloud()
     if on_cloud:
-        st.warning(
-            "☁️ **BDJobs browser automation is not available on Streamlit Cloud.**\n\n"
-            "Playwright browsers cannot be installed on Community Cloud servers. "
-            "Please use this feature on your local Windows workstation instead.",
-            icon="⚠️",
+        st.info(
+            "☁️ **BDJobs download on Streamlit Cloud**\n\n"
+            "Since Playwright browsers cannot run on Community Cloud servers, "
+            "CV downloading is handled by a **GitHub Actions** workflow. "
+            "Fill in the job details below and click **Trigger GitHub Actions Sync**.",
+            icon="☁️",
         )
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button(
-            "🔐 Manual Re-login (Browser)",
-            type="primary", use_container_width=True, key="btn_manual_login",
-            disabled=on_cloud,
-        ):
-            proc, lp = _spawn_login()
-            st.session_state["bdjobs_login_proc"] = proc
-            st.session_state["bdjobs_login_log"] = lp
-            st.toast("A new console + Chromium will open. Sign in there.")
-            time.sleep(1)
-            st.rerun()
-    with col_btn2:
-        has_creds = has_bdjobs_credentials(conn)
-        if st.button(
-            "🤖 Auto Re-login (Headless)" if has_creds else "🤖 Auto Re-login (Set credentials first)",
-            type="secondary", use_container_width=True, key="btn_auto_login",
-            disabled=(not has_creds) or on_cloud,
-        ):
-            proc, lp = _spawn_auto_login()
-            st.session_state["bdjobs_login_proc"] = proc
-            st.session_state["bdjobs_login_log"] = lp
-            st.rerun()
+        with st.form("gha_sync_form", clear_on_submit=False):
+            gha_label = st.text_input(
+                "Job Label",
+                placeholder="e.g., CostControl-SrExecutive",
+                help="Must match the job label used in the app.",
+            )
+            gha_url = st.text_input(
+                "BDJobs Job URL",
+                placeholder="https://employer.bdjobs.com/...",
+                help="The full BDJobs employer portal URL for this job posting.",
+            )
+            gha_max = st.number_input(
+                "Max candidates", min_value=0, value=0,
+                help="0 = download all applicants. Set a limit for testing.",
+            )
+            gha_dept = st.selectbox("Department", DEPARTMENT_LIST, index=0)
+            submitted_gha = st.form_submit_button(
+                "🚀 Trigger GitHub Actions Sync", type="primary", use_container_width=True,
+            )
+
+        if submitted_gha:
+            if not gha_label.strip() or not gha_url.strip():
+                st.error("Job label and URL are required.")
+            elif "jobno=" not in gha_url:
+                st.error("URL must contain a `jobno=` parameter.")
+            else:
+                sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+                from github_actions import trigger_bdjobs_scrape
+                ok, msg = trigger_bdjobs_scrape(
+                    job_label=gha_label.strip(),
+                    job_url=gha_url.strip(),
+                    max_candidates=int(gha_max),
+                    department=gha_dept,
+                )
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+    else:
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button(
+                "🔐 Manual Re-login (Browser)",
+                type="primary", use_container_width=True, key="btn_manual_login",
+            ):
+                proc, lp = _spawn_login()
+                st.session_state["bdjobs_login_proc"] = proc
+                st.session_state["bdjobs_login_log"] = lp
+                st.toast("A new console + Chromium will open. Sign in there.")
+                time.sleep(1)
+                st.rerun()
+        with col_btn2:
+            has_creds = has_bdjobs_credentials(conn)
+            if st.button(
+                "🤖 Auto Re-login (Headless)" if has_creds else "🤖 Auto Re-login (Set credentials first)",
+                type="secondary", use_container_width=True, key="btn_auto_login",
+                disabled=not has_creds,
+            ):
+                proc, lp = _spawn_auto_login()
+                st.session_state["bdjobs_login_proc"] = proc
+                st.session_state["bdjobs_login_log"] = lp
+                st.rerun()
 
 st.markdown("---")
 
