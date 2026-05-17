@@ -17,12 +17,13 @@ from pathlib import Path
 # Read credentials from PostgreSQL
 def _get_db_creds():
     import psycopg2
+    pg_port_str = os.environ.get("PG_PORT", "5432") or "5432"  # handle empty string
     PG = {
-        "host":     os.environ.get("PG_HOST",     "localhost"),
-        "port":     int(os.environ.get("PG_PORT", "5432")),
-        "dbname":   os.environ.get("PG_DBNAME",   "resume_ranking"),
-        "user":     os.environ.get("PG_USER",     "postgres"),
-        "password": os.environ.get("PG_PASSWORD", "ai&dt@OIPLC"),
+        "host":     os.environ.get("PG_HOST",     "localhost") or "localhost",
+        "port":     int(pg_port_str),
+        "dbname":   os.environ.get("PG_DBNAME",   "resume_ranking") or "resume_ranking",
+        "user":     os.environ.get("PG_USER",     "postgres") or "postgres",
+        "password": os.environ.get("PG_PASSWORD", ""),
     }
     conn = psycopg2.connect(**PG)
     with conn.cursor() as cur:
@@ -48,10 +49,22 @@ def main():
         creds = {"username": args.username, "password": args.password}
     else:
         # Try env vars next (used by GitHub Actions)
-        env_user = os.environ.get("BDJOBS_USER")
-        env_pass = os.environ.get("BDJOBS_PASS")
+        env_user = os.environ.get("BDJOBS_USER", "").strip()
+        env_pass = os.environ.get("BDJOBS_PASS", "").strip()
         if env_user and env_pass:
             creds = {"username": env_user, "password": env_pass}
+        elif args.headless:
+            # In CI/headless mode, don't try DB — fail fast with clear message
+            print("[ERROR] No BDJobs credentials available in headless mode.")
+            print("        --username/--password args were empty or not provided.")
+            print("        BDJOBS_USER/BDJOBS_PASS env vars are also empty.")
+            print("")
+            print("        FIX: Add these secrets to your GitHub repo:")
+            print("          - BDJOBS_USER: your BDJobs recruiter username/email")
+            print("          - BDJOBS_PASS: your BDJobs recruiter password")
+            print("")
+            print("        Go to: GitHub repo → Settings → Secrets and variables → Actions")
+            sys.exit(1)
         else:
             creds = _get_db_creds()
 
