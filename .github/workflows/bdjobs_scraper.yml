@@ -47,7 +47,7 @@ jobs:
         run: |
           playwright install chromium --with-deps
 
-      - name: Run BDJobs auto-login
+      - name: Login and download CVs
         env:
           BDJOBS_USER: ${{ secrets.BDJOBS_USER }}
           BDJOBS_PASS: ${{ secrets.BDJOBS_PASS }}
@@ -57,24 +57,33 @@ jobs:
           PG_USER:     ${{ secrets.PG_USER }}
           PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
         run: |
+          echo "=== Step 1: Login ==="
           python bdjobs_auto_login.py \
             --username "${{ secrets.BDJOBS_USER }}" \
             --password "${{ secrets.BDJOBS_PASS }}" \
             --headless
 
-      - name: Run BDJobs downloader
-        env:
-          PG_HOST:     ${{ secrets.PG_HOST }}
-          PG_PORT:     ${{ secrets.PG_PORT }}
-          PG_DBNAME:   ${{ secrets.PG_DBNAME }}
-          PG_USER:     ${{ secrets.PG_USER }}
-          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
-        run: |
+          echo "=== Debug: session dir contents ==="
+          ls -la bdjobs_session/ 2>/dev/null || echo "No bdjobs_session/ directory found"
+
+          echo "=== Step 2: Download ==="
           python bdjobs_downloader.py \
             --label "${{ github.event.inputs.job_label }}" \
             --url "${{ github.event.inputs.job_url }}" \
             --max-candidates ${{ github.event.inputs.max_candidates || 0 }} \
             --headless
+
+      - name: Upload debug screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots-${{ github.run_number }}
+          path: |
+            downloaded_resumes/**/_failure_screenshot.png
+            downloaded_resumes/**/_pagination_failure.png
+            downloaded_resumes/**/_pagination_dom.html
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Commit downloaded CVs to repository
         continue-on-error: true   # don't fail the whole workflow if git push is blocked
