@@ -13,7 +13,12 @@ def _get_token() -> str | None:
     # Fallback: try st.secrets (Streamlit Cloud injects these too, but just in case)
     try:
         import streamlit as st
+        # Check root-level first, then [github] section
         token = st.secrets.get("GH_TOKEN") or st.secrets.get("GITHUB_TOKEN")
+        if not token:
+            github_conf = st.secrets.get("github", {})
+            if github_conf:
+                token = github_conf.get("GH_TOKEN") or github_conf.get("GITHUB_TOKEN")
         if token:
             return str(token).strip()
     except Exception:
@@ -28,7 +33,12 @@ def _get_repo() -> str:
         return repo.strip()
     try:
         import streamlit as st
+        # Check root-level first, then [github] section
         repo = st.secrets.get("GH_REPO")
+        if not repo:
+            github_conf = st.secrets.get("github", {})
+            if github_conf:
+                repo = github_conf.get("GH_REPO")
         if repo:
             return str(repo).strip()
     except Exception:
