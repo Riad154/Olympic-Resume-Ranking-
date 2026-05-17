@@ -71,10 +71,9 @@ jobs:
           PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
         run: |
           python bdjobs_downloader.py \
-            --job "${{ github.event.inputs.job_label }}" \
+            --label "${{ github.event.inputs.job_label }}" \
             --url "${{ github.event.inputs.job_url }}" \
             --max-candidates ${{ github.event.inputs.max_candidates || 0 }} \
-            --department "${{ github.event.inputs.department || 'Uncategorized' }}" \
             --headless
 
       - name: Commit downloaded CVs to repository
@@ -98,6 +97,7 @@ jobs:
         if: always()   # upload even if commit step failed
         uses: actions/upload-artifact@v4
         with:
-          name: cvs-${{ github.event.inputs.job_label }}-${{ github.run_number }}
-          path: downloaded_resumes/${{ github.event.inputs.job_label }}/
+          name: cvs-${{ github.run_number }}
+          path: downloaded_resumes/
           retention-days: 7
+          if-no-files-found: warn

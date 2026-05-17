@@ -561,9 +561,17 @@ def _advance_to_page(page, target_page: int, job_dir: str) -> bool:
 
 
 def main():
+    # Session dir check is deferred until after arg parsing for headless mode.
+    # In headless/CI mode, auto-login creates the dir; if it's missing, we create
+    # an empty one so Playwright can start (session cookies come from the login step).
     if not Path(CONTEXT_DIR).exists():
-        print("[ERROR] No saved session found. Run bdjobs_login.py first.")
-        sys.exit(1)
+        # Quick-check: if called with --headless, create the dir to avoid crash
+        if "--headless" in sys.argv:
+            os.makedirs(CONTEXT_DIR, exist_ok=True)
+            print(f"[INFO] Created empty session dir: {CONTEXT_DIR}")
+        else:
+            print("[ERROR] No saved session found. Run bdjobs_login.py first.")
+            sys.exit(1)
 
     print()
     print("=" * 60)
@@ -595,13 +603,24 @@ def main():
                         help="Run browser in headless mode (required for CI/GitHub Actions)")
     args, _unknown = parser.parse_known_args()
 
-    job_id = (args.label or "").strip() or input("Enter job label (e.g. AI_Executive_Mar2026): ").strip()
+    if args.headless:
+        # In headless/CI mode, all args must come from CLI — no interactive prompts
+        job_id = (args.label or "").strip()
+        if not job_id:
+            print("[ERROR] --label is required in headless mode.")
+            sys.exit(1)
+        applicant_url = (args.url or "").strip()
+        if not applicant_url:
+            print("[ERROR] --url is required in headless mode.")
+            sys.exit(1)
+    else:
+        job_id = (args.label or "").strip() or input("Enter job label (e.g. AI_Executive_Mar2026): ").strip()
+        applicant_url = (args.url or "").strip() or input("Paste applicant list URL: ").strip()
+
     if not job_id:
         print("[ERROR] Job label cannot be empty.")
         sys.exit(1)
     job_id_safe = sanitize_filename(job_id)
-
-    applicant_url = (args.url or "").strip() or input("Paste applicant list URL: ").strip()
     if not applicant_url:
         print("[ERROR] URL cannot be empty.")
         sys.exit(1)
@@ -759,6 +778,11 @@ def main():
         }""")
 
         if not company_id:
+            if args.headless:
+                print("[ERROR] CompanyId not found automatically and cannot prompt in headless mode.")
+                print("        The login session may not be valid for this job URL.")
+                ctx.close()
+                sys.exit(1)
             company_id = input("CompanyId not found automatically. Enter it (e.g. ZiC6PiY=): ").strip()
         if not company_id:
             print("[ERROR] CompanyId is required.")

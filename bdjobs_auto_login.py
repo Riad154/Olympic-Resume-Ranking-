@@ -120,6 +120,11 @@ def main():
                     print("[TIMEOUT] No sentinel received.")
                     context.close()
                     sys.exit(2)
+            elif args.headless:
+                print("[ERROR] Login failed in headless mode. Cannot prompt for manual login.")
+                print("        Check your BDJOBS_USER and BDJOBS_PASS credentials.")
+                context.close()
+                sys.exit(1)
             else:
                 input(">>> Press ENTER after you have logged in manually … ")
         else:
