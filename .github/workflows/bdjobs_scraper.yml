@@ -74,9 +74,11 @@ jobs:
             --job "${{ github.event.inputs.job_label }}" \
             --url "${{ github.event.inputs.job_url }}" \
             --max-candidates ${{ github.event.inputs.max_candidates || 0 }} \
-            --department "${{ github.event.inputs.department || 'Uncategorized' }}"
+            --department "${{ github.event.inputs.department || 'Uncategorized' }}" \
+            --headless
 
       - name: Commit downloaded CVs to repository
+        continue-on-error: true   # don't fail the whole workflow if git push is blocked
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -93,6 +95,7 @@ jobs:
           fi
 
       - name: Upload workflow artifact (CVs)
+        if: always()   # upload even if commit step failed
         uses: actions/upload-artifact@v4
         with:
           name: cvs-${{ github.event.inputs.job_label }}-${{ github.run_number }}

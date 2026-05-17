@@ -591,6 +591,8 @@ def main():
                         help="Filter by location substring (case-insensitive)")
     parser.add_argument("--exp-keyword", type=str, default="",
                         help="Filter by experience substring (case-insensitive)")
+    parser.add_argument("--headless", action="store_true",
+                        help="Run browser in headless mode (required for CI/GitHub Actions)")
     args, _unknown = parser.parse_known_args()
 
     job_id = (args.label or "").strip() or input("Enter job label (e.g. AI_Executive_Mar2026): ").strip()
@@ -634,7 +636,7 @@ def main():
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             user_data_dir=CONTEXT_DIR,
-            headless=False,
+            headless=args.headless,
             viewport={"width": 1400, "height": 900},
             accept_downloads=True,
             args=["--disable-blink-features=AutomationControlled"],
