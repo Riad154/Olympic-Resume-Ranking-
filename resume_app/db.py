@@ -31,13 +31,35 @@ except ImportError:
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
-PG_CONN = {
-    "host":     os.environ.get("PG_HOST", "localhost"),
-    "port":     int(os.environ.get("PG_PORT", "5432")),
-    "dbname":   os.environ.get("PG_DBNAME", "resume_ranking"),
-    "user":     os.environ.get("PG_USER", "postgres"),
-    "password": os.environ.get("PG_PASSWORD", "ai&dt@OIPLC"),
-}
+def _pg_conf():
+    """Build PG connection dict from env vars (local/GitHub Actions) or
+    st.secrets (Streamlit Cloud)."""
+    # Try st.secrets first (Streamlit Cloud)
+    try:
+        pg = st.secrets.get("postgresql", {})
+        if pg:
+            port_str = str(pg.get("port", "5432"))
+            return {
+                "host":     pg.get("host",     "localhost"),
+                "port":     int(port_str) if port_str else 5432,
+                "dbname":   pg.get("dbname",   "resume_ranking"),
+                "user":     pg.get("user",     "postgres"),
+                "password": pg.get("password", ""),
+            }
+    except Exception:
+        pass
+
+    # Fall back to environment variables (local / GitHub Actions)
+    port_str = os.environ.get("PG_PORT", "5432") or "5432"
+    return {
+        "host":     os.environ.get("PG_HOST",     "localhost") or "localhost",
+        "port":     int(port_str),
+        "dbname":   os.environ.get("PG_DBNAME",   "resume_ranking") or "resume_ranking",
+        "user":     os.environ.get("PG_USER",     "postgres") or "postgres",
+        "password": os.environ.get("PG_PASSWORD", ""),
+    }
+
+PG_CONN = _pg_conf()
 
 # Project root = parent of resume_app/
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

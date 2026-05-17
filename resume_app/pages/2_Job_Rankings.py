@@ -255,7 +255,13 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-conn = get_conn()
+try:
+    conn = get_conn()
+except Exception as e:
+    conn = None
+    st.error(f"Database connection failed: {e}")
+    st.info("Check your PostgreSQL secrets in Streamlit Cloud settings.")
+    st.stop()
 
 # ── Live processing banner (visible while ranker subprocess is active) ────────
 _active_jobs_jr = [r for r in get_active_processing() if r["is_running"]]

@@ -541,7 +541,13 @@ st.caption("Pull applicant profiles + uploaded CVs straight from BDJobs Recruite
 # ══════════════════════════════════════════════════════════════════════════════
 # A. Session status + login
 # ══════════════════════════════════════════════════════════════════════════════
-conn = get_conn()
+try:
+    conn = get_conn()
+except Exception as e:
+    conn = None
+    st.error(f"Database connection failed: {e}")
+    st.info("Check your PostgreSQL secrets in Streamlit Cloud settings.")
+
 on_cloud = _is_streamlit_cloud()
 status = _session_status()  # always define — used in Section B idle phase too
 
