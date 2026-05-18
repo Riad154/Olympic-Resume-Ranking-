@@ -52,6 +52,11 @@ jobs:
         run: |
           playwright install chromium --with-deps
 
+      - name: Install virtual display (xvfb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
       - name: Login and download CVs
         env:
           BDJOBS_USER: ${{ secrets.BDJOBS_USER }}
@@ -62,16 +67,18 @@ jobs:
           PG_USER:     ${{ secrets.PG_USER }}
           PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
         run: |
-          echo "=== Step 1: Login ==="
+          echo "=== Step 1: Login (with virtual display) ==="
           FORCE_FLAG=""
           if [ "${{ github.event.inputs.force_relogin }}" = "true" ]; then
             FORCE_FLAG="--force"
             echo "[INFO] Force re-login requested — clearing old session"
           fi
-          python bdjobs_auto_login.py \
-            --username "${{ secrets.BDJOBS_USER }}" \
-            --password "${{ secrets.BDJOBS_PASS }}" \
-            --headless $FORCE_FLAG || {
+          # Run with xvfb to avoid --headless flag while still working in CI
+          xvfb-run --auto-servernum \
+            python bdjobs_auto_login.py \
+              --username "${{ secrets.BDJOBS_USER }}" \
+              --password "${{ secrets.BDJOBS_PASS }}" \
+              $FORCE_FLAG || {
             echo "[ERROR] Login step failed. See screenshot artifact for details."
             exit 1
           }
@@ -79,12 +86,12 @@ jobs:
           echo "=== Debug: session dir contents ==="
           ls -la bdjobs_session/ 2>/dev/null || echo "No bdjobs_session/ directory found"
 
-          echo "=== Step 2: Download ==="
-          python bdjobs_downloader.py \
-            --label "${{ github.event.inputs.job_label }}" \
-            --url "${{ github.event.inputs.job_url }}" \
-            --max-candidates ${{ github.event.inputs.max_candidates || 0 }} \
-            --headless
+          echo "=== Step 2: Download (with virtual display) ==="
+          xvfb-run --auto-servernum \
+            python bdjobs_downloader.py \
+              --label "${{ github.event.inputs.job_label }}" \
+              --url "${{ github.event.inputs.job_url }}" \
+              --max-candidates ${{ github.event.inputs.max_candidates || 0 }}
 
       - name: Upload login failure artifacts
         if: failure()

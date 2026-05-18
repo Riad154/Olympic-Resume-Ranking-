@@ -560,13 +560,19 @@ def _advance_to_page(page, target_page: int, job_dir: str) -> bool:
     return False
 
 
+def _is_ci():
+    """Detect if running in a CI environment (GitHub Actions, etc.)."""
+    return os.environ.get("GITHUB_ACTIONS", "").lower() == "true" or \
+           os.environ.get("CI", "").lower() == "true"
+
+
 def main():
-    # Session dir check is deferred until after arg parsing for headless mode.
-    # In headless/CI mode, auto-login creates the dir; if it's missing, we create
-    # an empty one so Playwright can start (session cookies come from the login step).
+    # Session dir check is deferred until after arg parsing.
+    # In CI/headless mode, auto-login creates the dir; if missing, create
+    # an empty one so Playwright can start (session cookies come from login step).
+    ci_mode = _is_ci()
     if not Path(CONTEXT_DIR).exists():
-        # Quick-check: if called with --headless, create the dir to avoid crash
-        if "--headless" in sys.argv:
+        if "--headless" in sys.argv or ci_mode:
             os.makedirs(CONTEXT_DIR, exist_ok=True)
             print(f"[INFO] Created empty session dir: {CONTEXT_DIR}")
         else:
@@ -603,15 +609,15 @@ def main():
                         help="Run browser in headless mode (required for CI/GitHub Actions)")
     args, _unknown = parser.parse_known_args()
 
-    if args.headless:
+    if args.headless or ci_mode:
         # In headless/CI mode, all args must come from CLI — no interactive prompts
         job_id = (args.label or "").strip()
         if not job_id:
-            print("[ERROR] --label is required in headless mode.")
+            print("[ERROR] --label is required in headless/CI mode.")
             sys.exit(1)
         applicant_url = (args.url or "").strip()
         if not applicant_url:
-            print("[ERROR] --url is required in headless mode.")
+            print("[ERROR] --url is required in headless/CI mode.")
             sys.exit(1)
     else:
         job_id = (args.label or "").strip() or input("Enter job label (e.g. AI_Executive_Mar2026): ").strip()
@@ -653,12 +659,24 @@ def main():
     print()
 
     with sync_playwright() as p:
+        # In CI with xvfb, run headless=False (xvfb provides the display)
+        # In local mode, respect the --headless flag if passed
+        browser_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+        ]
+        if ci_mode:
+            browser_args.extend([
+                "--disable-web-security",
+                "--disable-features=IsolateOrigins,site-per-process",
+            ])
         ctx = p.chromium.launch_persistent_context(
             user_data_dir=CONTEXT_DIR,
-            headless=args.headless,
+            headless=args.headless and not ci_mode,
             viewport={"width": 1400, "height": 900},
             accept_downloads=True,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=browser_args,
         )
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
 

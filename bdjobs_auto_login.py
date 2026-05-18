@@ -36,6 +36,12 @@ def _get_db_creds():
     return None
 
 
+def _is_ci():
+    """Detect if running in a CI environment (GitHub Actions, etc.)."""
+    return os.environ.get("GITHUB_ACTIONS", "").lower() == "true" or \
+           os.environ.get("CI", "").lower() == "true"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--username", default=None)
@@ -47,6 +53,8 @@ def main():
                         help="Clear existing session and force a fresh login.")
     args = parser.parse_args()
 
+    ci_mode = _is_ci()
+
     if args.username and args.password:
         creds = {"username": args.username.strip(), "password": args.password.strip()}
     else:
@@ -55,7 +63,7 @@ def main():
         env_pass = os.environ.get("BDJOBS_PASS", "").strip()
         if env_user and env_pass:
             creds = {"username": env_user, "password": env_pass}
-        elif args.headless:
+        elif args.headless or ci_mode:
             # In CI/headless mode, don't try DB — fail fast with clear message
             print("[ERROR] No BDJobs credentials available in headless mode.")
             print("        --username/--password args were empty or not provided.")
@@ -154,7 +162,7 @@ def main():
         "--disable-dev-shm-usage",
         "--no-sandbox",
     ]
-    if args.headless:
+    if args.headless or ci_mode:
         browser_args.extend([
             "--disable-web-security",
             "--disable-features=IsolateOrigins,site-per-process",
@@ -163,7 +171,7 @@ def main():
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             user_data_dir=CONTEXT_DIR,
-            headless=args.headless,
+            headless=args.headless and not ci_mode,  # CI uses xvfb, not headless
             viewport={"width": 1366, "height": 768},
             accept_downloads=True,
             user_agent=(
@@ -340,8 +348,8 @@ def main():
                 print("[TIMEOUT] No sentinel received.")
                 context.close()
                 sys.exit(2)
-        elif args.headless:
-            print("[ERROR] Login failed in headless mode. Cannot prompt for manual login.")
+        elif args.headless or ci_mode:
+            print("[ERROR] Login failed in headless/CI mode. Cannot prompt for manual login.")
             print("        Possible causes:")
             print("          1. Wrong BDJOBS_USER / BDJOBS_PASS credentials")
             print("          2. BDJobs is showing a CAPTCHA challenge")
