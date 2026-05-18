@@ -21,3 +21,13 @@ test_files/
 .vscode/
 resume_ranking/
 profiles_txt/
+
+# Sensitive auth/network capture files - NEVER commit
+*.har
+bdjobs_session.har
+bdjobs_cookies.json
+bdjobs_session_cookies.txt
+_login_page_dump.html
+_login_failure*.html
+_login_failure*.png
+_login_before*.png
