@@ -226,35 +226,31 @@ def main():
                         print(f"[INFO] Clicking sign-in element: {sel}", flush=True)
                         el.click()
                         signin_clicked = True
-                        time.sleep(4)
+                        # Angular SPA: route changes on same page, wait for form to render
+                        print("[INFO] Waiting for Angular route change (up to 10s) …", flush=True)
+                        time.sleep(2)
                         try:
-                            page.wait_for_load_state("networkidle", timeout=15000)
+                            page.wait_for_load_state("networkidle", timeout=10000)
                         except Exception:
                             pass
+                        # Give Angular extra time to render the login form
+                        time.sleep(3)
+                        print(f"[INFO] Current URL after SPA route change: {page.url}", flush=True)
                         break
                 except Exception as e:
                     print(f"[DEBUG] Selector {sel} failed: {e}", flush=True)
                     continue
             if not signin_clicked:
-                print("[WARN] Could not find 'Sign in' link on landing page. Will try direct /signin URL.", flush=True)
+                print("[WARN] Could not find 'Sign in' link on landing page.", flush=True)
 
         # ── Try to auto-fill login form ───────────────────────────────────
         print(f"[INFO] Auto-filling credentials for {creds['username']} …", flush=True)
         login_ok = False
 
-        # Strategy: navigate directly to signin page if still on landing
-        if is_landing and not _is_logged_in(page):
-            signin_url = "https://recruiter.bdjobs.com/signin"
-            try:
-                print(f"[INFO] Navigating directly to {signin_url} …", flush=True)
-                page.goto(signin_url, wait_until="domcontentloaded", timeout=30000)
-                time.sleep(3)
-                try:
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                except Exception:
-                    pass
-            except Exception as e:
-                print(f"[WARN] Could not navigate to signin page ({e}), staying on current page.", flush=True)
+        # For Angular SPA: if we are on the landing page and the signin form was clicked,
+        # the form should appear on the SAME page via Angular routing. Do NOT navigate
+        # to /signin as that triggers a real HTTP request which returns 404.
+        # Just wait for the form fields to appear on the current page.
 
         try:
             # Dump page HTML before attempting login (for debugging)
@@ -266,8 +262,19 @@ def main():
             except Exception:
                 pass
 
-            # Wait for login form to be fully rendered
-            page.wait_for_selector("input[type='text'], input[type='email'], input#UserName, input[name='UserName'], input#username", timeout=15000)
+            # Wait for login form to be fully rendered (Angular SPA may take time)
+            print("[INFO] Waiting for login form to render …", flush=True)
+            form_appeared = False
+            for attempt in range(6):
+                try:
+                    page.wait_for_selector("input[type='text'], input[type='email'], input#UserName, input[name='UserName'], input#username", timeout=5000)
+                    form_appeared = True
+                    break
+                except Exception:
+                    print(f"[INFO] Form not ready yet, retry {attempt+1}/6 …", flush=True)
+                    time.sleep(2)
+            if not form_appeared:
+                raise Exception("Login form did not appear after waiting")
 
             # Try multiple possible selectors for BDJobs login form
             user_sel = None
