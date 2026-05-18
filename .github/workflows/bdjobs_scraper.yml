@@ -34,7 +34,7 @@ jobs:
       contents: write
     defaults:
       run:
-        shell: pwsh
+        shell: powershell
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -69,14 +69,7 @@ jobs:
             $forceFlag = "--force"
             Write-Host "[INFO] Force re-login requested"
           }
-          $args = @(
-            "bdjobs_auto_login.py",
-            "--username", "${{ secrets.BDJOBS_USER }}",
-            "--password", "${{ secrets.BDJOBS_PASS }}",
-            "--headless"
-          )
-          if ($forceFlag) { $args += $forceFlag }
-          python @args
+          python bdjobs_auto_login.py --username "${{ secrets.BDJOBS_USER }}" --password "${{ secrets.BDJOBS_PASS }}" --headless $forceFlag
           if ($LASTEXITCODE -ne 0) {
             Write-Host "[ERROR] Login failed"
             exit 1
@@ -89,11 +82,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           Write-Host "=== Step 2: Download CVs ==="
-          python bdjobs_downloader.py `
-            --label "${{ github.event.inputs.job_label }}" `
-            --url "${{ github.event.inputs.job_url }}" `
-            --max-candidates ${{ github.event.inputs.max_candidates || 0 }} `
-            --headless
+          python bdjobs_downloader.py --label "${{ github.event.inputs.job_label }}" --url "${{ github.event.inputs.job_url }}" --max-candidates ${{ github.event.inputs.max_candidates || 0 }} --headless
           if ($LASTEXITCODE -ne 0) {
             Write-Host "[ERROR] Download failed"
             exit 1
