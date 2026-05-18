@@ -551,8 +551,118 @@ except Exception as e:
 on_cloud = _is_streamlit_cloud()
 status = _session_status()  # always define — used in Section B idle phase too
 
+# ══════════════════════════════════════════════════════════════════════════════
+# A. BDJobs Session (Login + Credentials) — shown FIRST on both cloud & local
+# ══════════════════════════════════════════════════════════════════════════════
+state_icon = {"missing": "🔴", "stale": "🟡", "fresh": "🟢", "unknown": "🟡"}.get(status["state"], "⚪")
+
+st.markdown("### 🔐 BDJobs Session")
+
+# Credential storage (collapsible) — shown on both cloud & local
+with st.expander("💾 Manage BDJobs Credentials", expanded=not has_bdjobs_credentials(conn)):
+    existing = get_bdjobs_credentials(conn)
+    c1, c2 = st.columns(2)
+    default_user = existing["username"] if existing else ""
+    default_pwd  = existing["password"] if existing else ""
+    username = c1.text_input("BDJobs Username", value=default_user, key="bdj_user")
+    password = c2.text_input("BDJobs Password", value=default_pwd, type="password", key="bdj_pwd")
+    if st.button("💾 Save Credentials", use_container_width=True, type="primary"):
+        if username.strip() and password.strip():
+            save_bdjobs_credentials(conn, username.strip(), password.strip())
+            st.success("Credentials saved securely in PostgreSQL.")
+            st.rerun()
+        else:
+            st.error("Both username and password are required.")
+
+sa, sb = st.columns([3, 1])
+sa.markdown(f"**{state_icon} {status['state'].title()}** — {status['msg']}")
+
+login_proc = st.session_state.get("bdjobs_login_proc")
+login_log  = st.session_state.get("bdjobs_login_log")
+
+if _is_alive(login_proc):
+    sb.warning("⏳ Login in progress")
+    st.markdown(
+        """
+        > **Action needed in the Chromium window that just opened:**
+        > 1. Sign in to BDJobs with your Recruiter account.
+        > 2. **Important:** click into **Job Dashboard → your job → View Applicants** so the SPA issues all auth tokens.
+        >    *(Skipping this step causes the downloader to fail with "Applicant cards did not load".)*
+        > 3. Once you can SEE applicant cards, come back here and click the green button below.
+        """
+    )
+    c1, c2 = st.columns([1, 1])
+    if c1.button("✅ I've finished logging in (save session)", type="primary", use_container_width=True):
+        Path(LOGIN_FLAG).touch()
+        st.toast("Saving session… give it a moment.")
+        time.sleep(2)
+        st.rerun()
+    if c2.button("✖ Cancel login", use_container_width=True):
+        try: login_proc.terminate()
+        except Exception: pass
+        for k in ("bdjobs_login_proc", "bdjobs_login_log"):
+            st.session_state.pop(k, None)
+        st.rerun()
+    with st.expander("Login script log", expanded=False):
+        st.code(_read_log(login_log) or "(no output yet)", language="text")
+    # Auto-poll while alive
+    time.sleep(3); st.rerun()
+elif login_proc is not None:
+    # Just exited
+    rc = login_proc.returncode
+    if rc == 0:
+        sb.success("✅ Saved")
+        st.success("Session saved. You can start a download below.")
+    else:
+        sb.error(f"❌ rc={rc}")
+        st.error(f"Login script exited with code {rc}. See log below.")
+        with st.expander("Login script log", expanded=True):
+            st.code(_read_log(login_log) or "(no output)", language="text")
+    for k in ("bdjobs_login_proc", "bdjobs_login_log"):
+        st.session_state.pop(k, None)
+else:
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button(
+            "🔐 Manual Re-login (Browser)",
+            type="primary", use_container_width=True, key="btn_manual_login",
+        ):
+            if on_cloud:
+                st.info(
+                    "☁️ Local browser login is not available on Streamlit Cloud. "
+                    "Use the **BDJobs CV Sync** form below to trigger a remote login + download via GitHub Actions."
+                )
+            else:
+                proc, lp = _spawn_login()
+                st.session_state["bdjobs_login_proc"] = proc
+                st.session_state["bdjobs_login_log"] = lp
+                st.toast("A new console + Chromium will open. Sign in there.")
+                time.sleep(1)
+                st.rerun()
+    with col_btn2:
+        has_creds = has_bdjobs_credentials(conn)
+        if st.button(
+            "🤖 Auto Re-login (Headless)" if has_creds else "🤖 Auto Re-login (Set credentials first)",
+            type="secondary", use_container_width=True, key="btn_auto_login",
+            disabled=not has_creds,
+        ):
+            if on_cloud:
+                st.info(
+                    "☁️ Headless login runs on GitHub Actions. "
+                    "Use the **BDJobs CV Sync** form below and check '🔄 Force fresh login' to trigger it."
+                )
+            else:
+                proc, lp = _spawn_auto_login()
+                st.session_state["bdjobs_login_proc"] = proc
+                st.session_state["bdjobs_login_log"] = lp
+                st.rerun()
+
+st.markdown("---")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# B. BDJobs CV Sync (GitHub Actions) — shown on Cloud, and as remote option on Local
+# ══════════════════════════════════════════════════════════════════════════════
 if on_cloud:
-    # ── Cloud: GitHub Actions sync form only ─────────────────────────────────
     st.markdown("### ☁️ BDJobs CV Sync (GitHub Actions)")
     st.info(
         "Playwright browsers cannot run on Streamlit Community Cloud. "
@@ -560,155 +670,70 @@ if on_cloud:
         "Fill in the job details and click **Trigger Sync** below.",
         icon="☁️",
     )
-    with st.form("gha_sync_form", clear_on_submit=False):
-        gha_label = st.text_input(
-            "Job Label",
-            placeholder="e.g., CostControl-SrExecutive",
-            help="Must match the job label used in the app.",
-        )
-        gha_url = st.text_input(
-            "BDJobs Job URL",
-            placeholder="https://employer.bdjobs.com/...",
-            help="The full BDJobs employer portal URL for this job posting.",
-        )
-        gha_max = st.number_input(
-            "Max candidates", min_value=0, value=0,
-            help="0 = download all applicants. Set a limit for testing.",
-        )
-        gha_dept = st.selectbox("Department", DEPARTMENT_LIST, index=0)
-        gha_force_login = st.checkbox(
-            "🔄 Force fresh login (clear old BDJobs session)",
-            value=False,
-            help="Check this if the scraper fails with 'Session is not authenticated'. "
-                 "It will clear the saved browser session and do a fresh login.",
-        )
-        submitted_gha = st.form_submit_button(
-            "🚀 Trigger GitHub Actions Sync", type="primary", use_container_width=True,
-        )
-
-    # ── Test token button for diagnostics ──────────────────────────────────
-    st.markdown("---")
-    with st.expander("🔧 Diagnostics: Test GitHub Token", expanded=False):
-        if st.button("🧪 Test GitHub Token", key="test_gha_token"):
-            sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
-            from github_actions import test_github_token
-            ok, msg = test_github_token()
-            if ok:
-                st.success(msg)
-            else:
-                st.error(msg)
-
-    if submitted_gha:
-        if not gha_label.strip() or not gha_url.strip():
-            st.error("Job label and URL are required.")
-        elif "jobno=" not in gha_url:
-            st.error("URL must contain a `jobno=` parameter.")
-        else:
-            sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
-            from github_actions import trigger_bdjobs_scrape
-            ok, msg = trigger_bdjobs_scrape(
-                job_label=gha_label.strip(),
-                job_url=gha_url.strip(),
-                max_candidates=int(gha_max),
-                department=gha_dept,
-                force_relogin=gha_force_login,
-            )
-            if ok:
-                st.success(msg)
-            else:
-                st.error(msg)
 else:
-    # ── Local: full BDJobs session UI ────────────────────────────────────────
-    state_icon = {"missing": "🔴", "stale": "🟡", "fresh": "🟢", "unknown": "🟡"}.get(status["state"], "⚪")
+    st.markdown("### ☁️ BDJobs CV Sync (GitHub Actions)")
+    st.info(
+        "Alternatively, trigger a **GitHub Actions** workflow remotely to download CVs. "
+        "This is useful if you don't have a local browser or want to run the scraper on GitHub's servers.",
+    )
 
-    st.markdown("### 🔐 BDJobs session")
+with st.form("gha_sync_form", clear_on_submit=False):
+    gha_label = st.text_input(
+        "Job Label",
+        placeholder="e.g., CostControl-SrExecutive",
+        help="Must match the job label used in the app.",
+    )
+    gha_url = st.text_input(
+        "BDJobs Job URL",
+        placeholder="https://employer.bdjobs.com/...",
+        help="The full BDJobs employer portal URL for this job posting.",
+    )
+    gha_max = st.number_input(
+        "Max candidates", min_value=0, value=0,
+        help="0 = download all applicants. Set a limit for testing.",
+    )
+    gha_dept = st.selectbox("Department", DEPARTMENT_LIST, index=0)
+    gha_force_login = st.checkbox(
+        "🔄 Force fresh login (clear old BDJobs session)",
+        value=False,
+        help="Check this if the scraper fails with 'Session is not authenticated'. "
+             "It will clear the saved browser session and do a fresh login.",
+    )
+    submitted_gha = st.form_submit_button(
+        "🚀 Trigger GitHub Actions Sync", type="primary", use_container_width=True,
+    )
 
-    # Credential storage (collapsible)
-    with st.expander("💾 Manage BDJobs Credentials", expanded=not has_bdjobs_credentials(conn)):
-        existing = get_bdjobs_credentials(conn)
-        c1, c2 = st.columns(2)
-        default_user = existing["username"] if existing else ""
-        default_pwd  = existing["password"] if existing else ""
-        username = c1.text_input("BDJobs Username", value=default_user, key="bdj_user")
-        password = c2.text_input("BDJobs Password", value=default_pwd, type="password", key="bdj_pwd")
-        if st.button("💾 Save Credentials", use_container_width=True, type="primary"):
-            if username.strip() and password.strip():
-                save_bdjobs_credentials(conn, username.strip(), password.strip())
-                st.success("Credentials saved securely in PostgreSQL.")
-                st.rerun()
-            else:
-                st.error("Both username and password are required.")
-
-    sa, sb = st.columns([3, 1])
-    sa.markdown(f"**{state_icon} {status['state'].title()}** — {status['msg']}")
-
-    login_proc = st.session_state.get("bdjobs_login_proc")
-    login_log  = st.session_state.get("bdjobs_login_log")
-
-    if _is_alive(login_proc):
-        sb.warning("⏳ Login in progress")
-        st.markdown(
-            """
-            > **Action needed in the Chromium window that just opened:**
-            > 1. Sign in to BDJobs with your Recruiter account.
-            > 2. **Important:** click into **Job Dashboard → your job → View Applicants** so the SPA issues all auth tokens.
-            >    *(Skipping this step causes the downloader to fail with "Applicant cards did not load".)*
-            > 3. Once you can SEE applicant cards, come back here and click the green button below.
-            """
-        )
-        c1, c2 = st.columns([1, 1])
-        if c1.button("✅ I've finished logging in (save session)", type="primary", use_container_width=True):
-            Path(LOGIN_FLAG).touch()
-            st.toast("Saving session… give it a moment.")
-            time.sleep(2)
-            st.rerun()
-        if c2.button("✖ Cancel login", use_container_width=True):
-            try: login_proc.terminate()
-            except Exception: pass
-            for k in ("bdjobs_login_proc", "bdjobs_login_log"):
-                st.session_state.pop(k, None)
-            st.rerun()
-        with st.expander("Login script log", expanded=False):
-            st.code(_read_log(login_log) or "(no output yet)", language="text")
-        # Auto-poll while alive
-        time.sleep(3); st.rerun()
-    elif login_proc is not None:
-        # Just exited
-        rc = login_proc.returncode
-        if rc == 0:
-            sb.success("✅ Saved")
-            st.success("Session saved. You can start a download below.")
+# ── Test token button for diagnostics ──────────────────────────────────
+st.markdown("---")
+with st.expander("🔧 Diagnostics: Test GitHub Token", expanded=False):
+    if st.button("🧪 Test GitHub Token", key="test_gha_token"):
+        sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+        from github_actions import test_github_token
+        ok, msg = test_github_token()
+        if ok:
+            st.success(msg)
         else:
-            sb.error(f"❌ rc={rc}")
-            st.error(f"Login script exited with code {rc}. See log below.")
-            with st.expander("Login script log", expanded=True):
-                st.code(_read_log(login_log) or "(no output)", language="text")
-        for k in ("bdjobs_login_proc", "bdjobs_login_log"):
-            st.session_state.pop(k, None)
+            st.error(msg)
+
+if submitted_gha:
+    if not gha_label.strip() or not gha_url.strip():
+        st.error("Job label and URL are required.")
+    elif "jobno=" not in gha_url:
+        st.error("URL must contain a `jobno=` parameter.")
     else:
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button(
-                "🔐 Manual Re-login (Browser)",
-                type="primary", use_container_width=True, key="btn_manual_login",
-            ):
-                proc, lp = _spawn_login()
-                st.session_state["bdjobs_login_proc"] = proc
-                st.session_state["bdjobs_login_log"] = lp
-                st.toast("A new console + Chromium will open. Sign in there.")
-                time.sleep(1)
-                st.rerun()
-        with col_btn2:
-            has_creds = has_bdjobs_credentials(conn)
-            if st.button(
-                "🤖 Auto Re-login (Headless)" if has_creds else "🤖 Auto Re-login (Set credentials first)",
-                type="secondary", use_container_width=True, key="btn_auto_login",
-                disabled=not has_creds,
-            ):
-                proc, lp = _spawn_auto_login()
-                st.session_state["bdjobs_login_proc"] = proc
-                st.session_state["bdjobs_login_log"] = lp
-                st.rerun()
+        sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+        from github_actions import trigger_bdjobs_scrape
+        ok, msg = trigger_bdjobs_scrape(
+            job_label=gha_label.strip(),
+            job_url=gha_url.strip(),
+            max_candidates=int(gha_max),
+            department=gha_dept,
+            force_relogin=gha_force_login,
+        )
+        if ok:
+            st.success(msg)
+        else:
+            st.error(msg)
 
 st.markdown("---")
 
