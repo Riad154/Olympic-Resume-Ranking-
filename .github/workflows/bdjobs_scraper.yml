@@ -29,100 +29,110 @@ on:
 
 jobs:
   scrape:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
-      contents: write   # needed to commit downloaded CVs back to repo
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Verify Python
+        run: |
+          python --version
+          Write-Host "[OK] Python found"
 
-      - name: Install Python dependencies
+      - name: Install / update dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          playwright install chromium
 
-      - name: Download CVs via API
+      - name: Login to BDJobs
         env:
-          PYTHONUNBUFFERED: 1
+          PYTHONUNBUFFERED: "1"
           BDJOBS_USER: ${{ secrets.BDJOBS_USER }}
           BDJOBS_PASS: ${{ secrets.BDJOBS_PASS }}
+          PG_HOST:     ${{ secrets.PG_HOST }}
+          PG_PORT:     ${{ secrets.PG_PORT }}
+          PG_DBNAME:   ${{ secrets.PG_DBNAME }}
+          PG_USER:     ${{ secrets.PG_USER }}
+          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
         run: |
-          echo "=== Extract jobno from URL ==="
-          JOB_URL="${{ github.event.inputs.job_url }}"
-          # Extract jobno from URL query string (e.g., ?jobno=1344660&...)
-          JOBNO=$(python -c "from urllib.parse import parse_qs, urlparse; u='${JOB_URL}'; q=parse_qs(urlparse(u).query); print(q.get('jobno',[0])[0])")
-          echo "[INFO] JobNo = $JOBNO"
-          if [ "$JOBNO" = "0" ] || [ -z "$JOBNO" ]; then
-            echo "[ERROR] Could not extract jobno from URL: $JOB_URL"
+          Write-Host "=== Step 1: Login ==="
+          $forceFlag = ""
+          if ("${{ github.event.inputs.force_relogin }}" -eq "true") {
+            $forceFlag = "--force"
+            Write-Host "[INFO] Force re-login requested"
+          }
+          $args = @(
+            "bdjobs_auto_login.py",
+            "--username", "${{ secrets.BDJOBS_USER }}",
+            "--password", "${{ secrets.BDJOBS_PASS }}",
+            "--headless"
+          )
+          if ($forceFlag) { $args += $forceFlag }
+          python @args
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "[ERROR] Login failed"
             exit 1
-          fi
+          }
+          Write-Host "=== Session dir contents ==="
+          if (Test-Path "bdjobs_session") { Get-ChildItem -Path "bdjobs_session" } else { Write-Host "No bdjobs_session/ found" }
 
-          echo "=== Run API downloader ==="
-          FORCE_FLAG=""
-          if [ "${{ github.event.inputs.force_relogin }}" = "true" ]; then
-            FORCE_FLAG="--force-login"
-            echo "[INFO] Force re-login requested"
-            rm -f bdjobs_api_session.json
-          fi
-          python bdjobs_api_downloader.py \
-            --username "${{ secrets.BDJOBS_USER }}" \
-            --password "${{ secrets.BDJOBS_PASS }}" \
-            --jobno "$JOBNO" \
-            --label "${{ github.event.inputs.job_label }}" \
-            --max-candidates ${{ github.event.inputs.max_candidates || 0 }} \
-            $FORCE_FLAG
+      - name: Download CVs
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          Write-Host "=== Step 2: Download CVs ==="
+          python bdjobs_downloader.py `
+            --label "${{ github.event.inputs.job_label }}" `
+            --url "${{ github.event.inputs.job_url }}" `
+            --max-candidates ${{ github.event.inputs.max_candidates || 0 }} `
+            --headless
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "[ERROR] Download failed"
+            exit 1
+          }
 
-      - name: Upload login failure artifacts
+      - name: Upload debug artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: login-debug-${{ github.run_number }}
+          name: debug-${{ github.run_number }}
           path: |
             _login_failure.png
             _login_before.png
             _login_page_dump.html
             _login_failure_page.html
-          if-no-files-found: ignore
-          retention-days: 3
-
-      - name: Upload debug screenshots on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-screenshots-${{ github.run_number }}
-          path: |
             downloaded_resumes/**/_failure_screenshot.png
             downloaded_resumes/**/_pagination_failure.png
-            downloaded_resumes/**/_pagination_dom.html
           if-no-files-found: ignore
           retention-days: 3
 
-      - name: Commit downloaded CVs to repository
-        continue-on-error: true   # don't fail the whole workflow if git push is blocked
+      - name: Commit downloaded CVs
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git add downloaded_resumes/
-          # Only commit if there are changes
-          if git diff --cached --quiet; then
-            echo "No new CVs to commit"
-          else
+          $diff = git diff --cached --quiet 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "No new CVs to commit"
+          } else {
             git commit -m "Add CVs for ${{ github.event.inputs.job_label }} via GitHub Actions"
             git push origin ${{ github.ref_name }}
-          fi
+          }
 
-      - name: Upload workflow artifact (CVs)
-        if: always()   # upload even if commit step failed
+      - name: Upload CVs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cvs-${{ github.run_number }}
