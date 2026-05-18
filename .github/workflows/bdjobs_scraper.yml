@@ -86,12 +86,16 @@ jobs:
             --max-candidates ${{ github.event.inputs.max_candidates || 0 }} \
             --headless
 
-      - name: Upload login failure screenshot
+      - name: Upload login failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: login-screenshot-${{ github.run_number }}
-          path: _login_failure.png
+          name: login-debug-${{ github.run_number }}
+          path: |
+            _login_failure.png
+            _login_before.png
+            _login_failure_page.html
+            _login_before_page.html
           if-no-files-found: ignore
           retention-days: 3
 

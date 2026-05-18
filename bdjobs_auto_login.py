@@ -48,7 +48,7 @@ def main():
     args = parser.parse_args()
 
     if args.username and args.password:
-        creds = {"username": args.username, "password": args.password}
+        creds = {"username": args.username.strip(), "password": args.password.strip()}
     else:
         # Try env vars next (used by GitHub Actions)
         env_user = os.environ.get("BDJOBS_USER", "").strip()
@@ -241,20 +241,53 @@ def main():
                 print(f"[INFO] Credentials typed. Submitting via {submit_sel} …")
                 page.click(submit_sel, timeout=5000)
                 print("[INFO] Form submitted. Waiting for navigation …")
-                page.wait_for_load_state("networkidle", timeout=30000)
-                login_ok = True
+
+                # Wait for either navigation or error message
+                try:
+                    # Wait up to 15s for the page to settle after submit
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception:
+                    pass
+
+                # Check immediately if "Invalid Credentials" appeared
+                body_text = (page.evaluate("() => document.body.innerText") or "").lower()
+                if "invalid credentials" in body_text:
+                    print("[ERROR] BDJobs returned 'Invalid Credentials'. The username or password is wrong.")
+                    print("        Username used: " + creds["username"])
+                    print("        If you recently changed your BDJobs password, update the BDJOBS_PASS secret.")
+                    login_ok = False
+                else:
+                    login_ok = True
             else:
                 print(f"[WARN] Could not find all login form fields.")
                 print(f"        user_field={user_sel}, pass_field={pass_sel}, submit={submit_sel}")
+                # Save HTML for debugging
+                try:
+                    html_path = SCREENSHOT_PATH.replace(".png", "_page.html")
+                    with open(html_path, "w", encoding="utf-8") as f:
+                        f.write(page.content())
+                    print(f"        Page HTML saved: {html_path}")
+                except Exception:
+                    pass
         except Exception as e:
             print(f"[WARN] Could not auto-fill form ({e}).")
 
         # ── Wait for SPA routing and any redirects ──────────────────────
-        time.sleep(5)
+        time.sleep(3)
         try:
             page.wait_for_load_state("networkidle", timeout=20000)
         except Exception:
             pass
+
+        # Dump page HTML for debugging if login failed
+        if not login_ok:
+            try:
+                html_path = SCREENSHOT_PATH.replace(".png", "_page.html")
+                with open(html_path, "w", encoding="utf-8") as f:
+                    f.write(page.content())
+                print(f"[DEBUG] Page HTML saved: {html_path}")
+            except Exception:
+                pass
 
         # ── Verify login succeeded ────────────────────────────────────────
         if _is_logged_in(page):
@@ -269,6 +302,19 @@ def main():
         try:
             body_text = (page.evaluate("() => document.body.innerText") or "")
             print(f"        Page text preview: {body_text[:500]}...")
+            # Detect specific error patterns
+            body_lower = body_text.lower()
+            if "invalid credentials" in body_lower:
+                print("[DIAGNOSIS] BDJobs explicitly rejected the password.")
+                print("            The BDJOBS_USER / BDJOBS_PASS secrets are incorrect.")
+                print("            ACTION: Log in manually at https://recruiter.bdjobs.com")
+                print("                    with the SAME credentials to verify them.")
+            elif "captcha" in body_lower or "i'm not a robot" in body_lower:
+                print("[DIAGNOSIS] BDJobs is showing a CAPTCHA challenge.")
+                print("            ACTION: Wait 10-15 minutes and retry, or use manual login.")
+            elif "too many" in body_lower or "temporarily blocked" in body_lower:
+                print("[DIAGNOSIS] Account temporarily blocked due to too many failed attempts.")
+                print("            ACTION: Wait 30 minutes before retrying.")
         except Exception:
             pass
 
