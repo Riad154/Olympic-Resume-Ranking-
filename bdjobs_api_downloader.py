@@ -117,18 +117,85 @@ class BDJobsAPIClient:
         print(f"[DEBUG] Login HTTP {resp.status_code}", flush=True)
         resp.raise_for_status()
         data = resp.json()
+
+        # Debug: dump first 2000 chars of response
+        raw_preview = json.dumps(data)[:2000]
+        print(f"[DEBUG] Login response preview: {raw_preview}", flush=True)
+
+        # Robust token extraction — try multiple known response shapes
+        token = refresh = encrypt_id = msg = None
+
+        # Shape A: data.event.eventData[0].value = {token, refreshToken, encryptId, message}
         event = data.get("event", {})
         event_data = event.get("eventData", [])
-        if not event_data:
-            raise RuntimeError("Login response missing eventData")
-        msg_obj = event_data[0].get("value", {})
-        token = msg_obj.get("token")
-        refresh = msg_obj.get("refreshToken")
-        encrypt_id = msg_obj.get("encryptId")
-        msg = msg_obj.get("message", "")
+        if event_data and isinstance(event_data, list):
+            for item in event_data:
+                if isinstance(item, dict):
+                    val = item.get("value", {})
+                    if isinstance(val, dict):
+                        if val.get("token"):
+                            token = val.get("token")
+                            refresh = val.get("refreshToken")
+                            encrypt_id = val.get("encryptId")
+                            msg = val.get("message", "")
+                            break
+
+        # Shape B: data.token directly (some APIs return flat structure)
+        if not token:
+            token = data.get("token")
+            refresh = data.get("refreshToken")
+            encrypt_id = data.get("encryptId")
+            msg = data.get("message", "")
+
+        # Shape C: nested in data.result or data.data
+        for key in ("result", "data", "response", "body"):
+            if not token and key in data:
+                nested = data[key]
+                if isinstance(nested, dict):
+                    token = nested.get("token") or nested.get("accessToken")
+                    refresh = nested.get("refreshToken")
+                    encrypt_id = nested.get("encryptId")
+                    msg = nested.get("message", "")
+                elif isinstance(nested, list) and nested:
+                    first = nested[0]
+                    if isinstance(first, dict):
+                        token = first.get("token") or first.get("accessToken")
+                        refresh = first.get("refreshToken")
+                        encrypt_id = first.get("encryptId")
+                        msg = first.get("message", "")
+
+        # Shape D: search recursively for token key anywhere in JSON
+        def _find_key(obj, key_name):
+            if isinstance(obj, dict):
+                if key_name in obj:
+                    return obj[key_name]
+                for v in obj.values():
+                    result = _find_key(v, key_name)
+                    if result is not None:
+                        return result
+            elif isinstance(obj, list):
+                for item in obj:
+                    result = _find_key(item, key_name)
+                    if result is not None:
+                        return result
+            return None
+
+        if not token:
+            token = _find_key(data, "token")
+            if not token:
+                token = _find_key(data, "accessToken")
+        if not refresh:
+            refresh = _find_key(data, "refreshToken")
+        if not encrypt_id:
+            encrypt_id = _find_key(data, "encryptId")
+        if not msg:
+            msg = _find_key(data, "message") or ""
+            if not msg:
+                msg = _find_key(data, "Message") or ""
+
         print(f"[INFO] Login message: {msg}", flush=True)
         if not token:
-            raise RuntimeError(f"Login failed: {msg}")
+            raise RuntimeError(f"Login failed: no token found. Response preview: {raw_preview[:500]}")
         print(f"[OK] JWT obtained (len={len(token)})", flush=True)
         # fetch company info
         client = cls(token=token, encrypt_id=encrypt_id)
