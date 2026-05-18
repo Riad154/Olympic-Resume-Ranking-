@@ -101,8 +101,8 @@ jobs:
           path: |
             _login_failure.png
             _login_before.png
+            _login_page_dump.html
             _login_failure_page.html
-            _login_before_page.html
           if-no-files-found: ignore
           retention-days: 3
 

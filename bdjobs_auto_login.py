@@ -213,13 +213,36 @@ def main():
         # ── Try to auto-fill login form ───────────────────────────────────
         print(f"[INFO] Auto-filling credentials for {creds['username']} …")
         login_ok = False
+
+        # Strategy: navigate directly to signin page (more reliable than landing page)
+        signin_url = "https://recruiter.bdjobs.com/signin"
         try:
+            print(f"[INFO] Navigating directly to {signin_url} …")
+            page.goto(signin_url, wait_until="domcontentloaded", timeout=30000)
+            time.sleep(3)
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[WARN] Could not navigate to signin page ({e}), staying on current page.")
+
+        try:
+            # Dump page HTML before attempting login (for debugging)
+            try:
+                html_path = SCREENSHOT_PATH.replace("_login_failure", "_login_page_dump")
+                with open(html_path, "w", encoding="utf-8") as f:
+                    f.write(page.content())
+                print(f"[DEBUG] Page HTML dumped to: {html_path}")
+            except Exception:
+                pass
+
             # Wait for login form to be fully rendered
-            page.wait_for_selector("input[type='text'], input[type='email'], #UserName, input[name='UserName']", timeout=10000)
+            page.wait_for_selector("input[type='text'], input[type='email'], input#UserName, input[name='UserName'], input#username", timeout=15000)
 
             # Try multiple possible selectors for BDJobs login form
             user_sel = None
-            for sel in ["input#UserName", "input[name='UserName']", "input[type='text']", "#userName", "#username"]:
+            for sel in ["input#UserName", "input[name='UserName']", "input#username", "input[type='text']", "input[type='email']"]:
                 if page.query_selector(sel):
                     user_sel = sel
                     break
@@ -229,35 +252,45 @@ def main():
                     pass_sel = sel
                     break
             submit_sel = None
-            for sel in ["input[type='submit']", "button[type='submit']", ".btn-login", "#btnLogin", "button:has-text('Sign In')", "button:has-text('Login')"]:
+            for sel in ["button[type='submit']", "input[type='submit']", ".btn-login", "#btnLogin", "button:has-text('Sign In')", "button:has-text('Login')"]:
                 if page.query_selector(sel):
                     submit_sel = sel
                     break
 
             if user_sel and pass_sel and submit_sel:
+                print(f"[INFO] Found form fields: user={user_sel}, pass={pass_sel}, submit={submit_sel}")
+
                 # Method 1: Use JavaScript to set values (more reliable with Angular/SPA)
                 page.evaluate(
                     """([userSel, passSel, userVal, passVal]) => {
                         const u = document.querySelector(userSel);
                         const p = document.querySelector(passSel);
-                        if (u) { u.value = userVal; u.dispatchEvent(new Event('input', {bubbles:true})); u.dispatchEvent(new Event('change', {bubbles:true})); }
-                        if (p) { p.value = passVal; p.dispatchEvent(new Event('input', {bubbles:true})); p.dispatchEvent(new Event('change', {bubbles:true})); }
+                        if (u) {
+                            u.value = userVal;
+                            u.dispatchEvent(new Event('input', {bubbles:true}));
+                            u.dispatchEvent(new Event('change', {bubbles:true}));
+                            u.dispatchEvent(new Event('keyup', {bubbles:true}));
+                        }
+                        if (p) {
+                            p.value = passVal;
+                            p.dispatchEvent(new Event('input', {bubbles:true}));
+                            p.dispatchEvent(new Event('change', {bubbles:true}));
+                            p.dispatchEvent(new Event('keyup', {bubbles:true}));
+                        }
                     }""",
                     [user_sel, pass_sel, creds["username"], creds["password"]]
                 )
-                print(f"[INFO] Credentials set via JS. user_sel={user_sel}, pass_sel={pass_sel}")
-
-                # Small delay for Angular to pick up the changes
-                time.sleep(1)
+                print("[INFO] Credentials set via JS with input/change/keyup events.")
+                time.sleep(2)  # Wait for Angular to process
 
                 # Method A: Click submit button
-                print(f"[INFO] Clicking submit button: {submit_sel}")
+                print(f"[INFO] Clicking submit: {submit_sel}")
                 page.click(submit_sel, timeout=5000)
 
                 # Wait and poll for result (Angular SPA may not navigate)
-                print("[INFO] Polling for login result …")
+                print("[INFO] Polling for login result (up to 30s) …")
                 result = None
-                for _ in range(20):  # poll for up to 20 seconds
+                for _ in range(30):
                     time.sleep(1)
                     try:
                         page.wait_for_load_state("networkidle", timeout=5000)
@@ -266,10 +299,12 @@ def main():
                     body_text = (page.evaluate("() => document.body.innerText") or "").lower()
                     url = page.url.lower()
 
-                    # Success indicators
-                    if "signin" not in url and "login" not in url and ("dashboard" in body_text or "logout" in body_text or "my jobs" in body_text or "job dashboard" in body_text):
-                        result = "success"
-                        break
+                    # Success: not on signin/login URL and has logged-in markers
+                    if "signin" not in url and "login" not in url:
+                        if any(m in body_text for m in ["dashboard", "logout", "my jobs", "job dashboard", "post a job"]):
+                            result = "success"
+                            break
+
                     # Error indicators
                     if "invalid credentials" in body_text:
                         result = "invalid_creds"
