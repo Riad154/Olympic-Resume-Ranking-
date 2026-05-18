@@ -148,15 +148,38 @@ def main():
 
     from urllib.parse import urlparse
 
+    # Extra args to avoid automation detection in headless mode
+    browser_args = [
+        "--disable-blink-features=AutomationControlled",
+        "--disable-dev-shm-usage",
+        "--no-sandbox",
+    ]
+    if args.headless:
+        browser_args.extend([
+            "--disable-web-security",
+            "--disable-features=IsolateOrigins,site-per-process",
+        ])
+
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             user_data_dir=CONTEXT_DIR,
             headless=args.headless,
-            viewport={"width": 1280, "height": 900},
+            viewport={"width": 1366, "height": 768},
             accept_downloads=True,
-            args=["--disable-blink-features=AutomationControlled"],
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            args=browser_args,
         )
         page = context.pages[0] if context.pages else context.new_page()
+
+        # Override navigator.webdriver to avoid detection
+        page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
 
         print(f"[INFO] Navigating to {BDJOBS_URL} …")
         page.goto(BDJOBS_URL, wait_until="domcontentloaded", timeout=30000)
@@ -173,10 +196,19 @@ def main():
 
         print("[INFO] Not authenticated. Proceeding with login form …")
 
+        # Pre-login screenshot for debugging
+        try:
+            page.screenshot(path=SCREENSHOT_PATH.replace("_login_failure", "_login_before"), full_page=True)
+        except Exception:
+            pass
+
         # ── Try to auto-fill login form ───────────────────────────────────
         print(f"[INFO] Auto-filling credentials for {creds['username']} …")
         login_ok = False
         try:
+            # Wait for login form to be fully rendered
+            page.wait_for_selector("input[type='text'], input[type='email'], #UserName, input[name='UserName']", timeout=10000)
+
             # Try multiple possible selectors for BDJobs login form
             user_sel = None
             for sel in ["input#UserName", "input[name='UserName']", "input[type='text']", "#userName", "#username"]:
@@ -195,10 +227,20 @@ def main():
                     break
 
             if user_sel and pass_sel and submit_sel:
-                page.fill(user_sel, creds["username"], timeout=5000)
-                page.fill(pass_sel, creds["password"], timeout=5000)
+                # Clear fields first, then type (more realistic than fill)
+                page.click(user_sel, timeout=5000)
+                page.keyboard.press("Control+a")
+                page.keyboard.press("Delete")
+                page.type(user_sel, creds["username"], delay=50, timeout=5000)
+
+                page.click(pass_sel, timeout=5000)
+                page.keyboard.press("Control+a")
+                page.keyboard.press("Delete")
+                page.type(pass_sel, creds["password"], delay=50, timeout=5000)
+
+                print(f"[INFO] Credentials typed. Submitting via {submit_sel} …")
                 page.click(submit_sel, timeout=5000)
-                print(f"[INFO] Form submitted via {submit_sel}. Waiting for navigation …")
+                print("[INFO] Form submitted. Waiting for navigation …")
                 page.wait_for_load_state("networkidle", timeout=30000)
                 login_ok = True
             else:
@@ -207,10 +249,10 @@ def main():
         except Exception as e:
             print(f"[WARN] Could not auto-fill form ({e}).")
 
-        # ── Wait a moment for SPA routing ─────────────────────────────────
-        time.sleep(3)
+        # ── Wait for SPA routing and any redirects ──────────────────────
+        time.sleep(5)
         try:
-            page.wait_for_load_state("networkidle", timeout=15000)
+            page.wait_for_load_state("networkidle", timeout=20000)
         except Exception:
             pass
 
