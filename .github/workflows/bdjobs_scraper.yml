@@ -59,6 +59,7 @@ jobs:
 
       - name: Login and download CVs
         env:
+          PYTHONUNBUFFERED: 1
           BDJOBS_USER: ${{ secrets.BDJOBS_USER }}
           BDJOBS_PASS: ${{ secrets.BDJOBS_PASS }}
           PG_HOST:     ${{ secrets.PG_HOST }}
