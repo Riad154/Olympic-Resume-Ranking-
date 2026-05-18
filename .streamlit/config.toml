@@ -1,0 +1,14 @@
+[theme]
+primaryColor = "#C8102E"
+font = "sans serif"
+
+[server]
+headless = true
+address = "0.0.0.0"
+port = 8501
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
+serverAddress = "0.0.0.0"
+serverPort = 8501

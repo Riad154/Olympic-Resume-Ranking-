@@ -48,51 +48,36 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Playwright browsers
-        run: |
-          playwright install chromium --with-deps
-
-      - name: Install virtual display (xvfb)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
-
-      - name: Login and download CVs
+      - name: Download CVs via API
         env:
           PYTHONUNBUFFERED: 1
           BDJOBS_USER: ${{ secrets.BDJOBS_USER }}
           BDJOBS_PASS: ${{ secrets.BDJOBS_PASS }}
-          PG_HOST:     ${{ secrets.PG_HOST }}
-          PG_PORT:     ${{ secrets.PG_PORT }}
-          PG_DBNAME:   ${{ secrets.PG_DBNAME }}
-          PG_USER:     ${{ secrets.PG_USER }}
-          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
         run: |
-          echo "=== Step 1: Login (with virtual display) ==="
+          echo "=== Extract jobno from URL ==="
+          JOB_URL="${{ github.event.inputs.job_url }}"
+          # Extract jobno from URL query string (e.g., ?jobno=1344660&...)
+          JOBNO=$(python -c "from urllib.parse import parse_qs, urlparse; u='${JOB_URL}'; q=parse_qs(urlparse(u).query); print(q.get('jobno',[0])[0])")
+          echo "[INFO] JobNo = $JOBNO"
+          if [ "$JOBNO" = "0" ] || [ -z "$JOBNO" ]; then
+            echo "[ERROR] Could not extract jobno from URL: $JOB_URL"
+            exit 1
+          fi
+
+          echo "=== Run API downloader ==="
           FORCE_FLAG=""
           if [ "${{ github.event.inputs.force_relogin }}" = "true" ]; then
-            FORCE_FLAG="--force"
-            echo "[INFO] Force re-login requested — clearing old session"
+            FORCE_FLAG="--force-login"
+            echo "[INFO] Force re-login requested"
+            rm -f bdjobs_api_session.json
           fi
-          # Run with xvfb to avoid --headless flag while still working in CI
-          xvfb-run --auto-servernum \
-            python bdjobs_auto_login.py \
-              --username "${{ secrets.BDJOBS_USER }}" \
-              --password "${{ secrets.BDJOBS_PASS }}" \
-              $FORCE_FLAG || {
-            echo "[ERROR] Login step failed. See screenshot artifact for details."
-            exit 1
-          }
-
-          echo "=== Debug: session dir contents ==="
-          ls -la bdjobs_session/ 2>/dev/null || echo "No bdjobs_session/ directory found"
-
-          echo "=== Step 2: Download (with virtual display) ==="
-          xvfb-run --auto-servernum \
-            python bdjobs_downloader.py \
-              --label "${{ github.event.inputs.job_label }}" \
-              --url "${{ github.event.inputs.job_url }}" \
-              --max-candidates ${{ github.event.inputs.max_candidates || 0 }}
+          python bdjobs_api_downloader.py \
+            --username "${{ secrets.BDJOBS_USER }}" \
+            --password "${{ secrets.BDJOBS_PASS }}" \
+            --jobno "$JOBNO" \
+            --label "${{ github.event.inputs.job_label }}" \
+            --max-candidates ${{ github.event.inputs.max_candidates || 0 }} \
+            $FORCE_FLAG
 
       - name: Upload login failure artifacts
         if: failure()

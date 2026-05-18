@@ -1,0 +1,45 @@
+﻿Total requests: 79
+
+=== API/XHR REQUESTS (filtered) ===
+  [204] POST k.clarity.ms/collect
+  [200] POST api.bdjobs.com/auth/api/Login/Login
+  [204] OPTIONS api.bdjobs.com/auth/api/Login/Login
+  [200] GET corporate3.bdjobs.com/SupportingData-test.asp
+         ?ComID=ZiC6PiY=&ComUsrAcc=PRY0IRZ=
+  [200] GET recruiter.bdjobs.com/chunk-Q2QCVRRC.js
+  [200] GET recruiter-dashboard-api-prod-odcx6humqq-as.a.run.app/api/v2/Gateway
+         ?companyId=ZiC6PiY=&UA=PRY0IRZ=&JobType=published&batchSize=10&pageNumber=1
+  [200] GET recruiter.bdjobs.com/assets/images/cv-bank-dashboard-img.png
+  [200] GET recruiter.bdjobs.com/assets/images/cv-bank-green.png
+  [200] GET recruiter.bdjobs.com/assets/images/cv-bank-pink.png
+  [200] GET api.bdjobs.com/auth/api/Login/GetSupportingInfo
+  [204] OPTIONS api.bdjobs.com/auth/api/Login/GetSupportingInfo
+  [200] GET corporate3.bdjobs.com/getCvBank.asp
+         ?cid=&bda=rbh
+  [200] GET gateway.bdjobs.com/EmployerJobFair/api/JobFair/GetJobFairsData
+         ?CompanyId=ZiC6PiY=
+  [200] GET testmongo.bdjobs.com/v1/api/Gateway/NewApplicantCount
+         ?jobId=1476438
+  [200] GET corporate3.bdjobs.com/ApplicantMessage.asp
+         ?JobNo=1476438&domain=recruiter&comdata=ZiC6PiY=
+  [200] GET corporate3.bdjobs.com/ApplicantMessageUnreadCount.asp
+         ?JobNo=1476438&domain=recruiter&comdata=ZiC6PiY=&chatAfter=01/01/1%2006:01%20AM
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/7800001-7825000/3137824022r0b5k.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/3175001-3200000/1283196348k4f5h.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/8000001-8025000/3218004470m1k7x.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/3625001-3650000/1463649971x0s1w.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/7100001-7125000/2857121151l4h1p.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/2200001-2225000/892203753f3n3m.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/8375001-8400000/3368394646n4d1p.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/3825001-3850000/1543831414p7x5q.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/3250001-3275000/1313273222b1v2y.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/1475001-1500000/601492666c1x2b.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/7075001-7100000/2847078982v4x4q.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/4875001-4900000/1964885541f4t0d.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/3000001-3025000/1213012712h5x5b.jpg
+  [200] GET storage.googleapis.com/bdjobs/mybdjobs/photos/6575001-6600000/2646592490k0l2m.jpg
+  [200] POST recruiter.bdjobs.com/authentication/api/services
+  [200] POST corporate3.bdjobs.com/api/v1/CorporateAutoLogout.asp
+  [200] GET storage.googleapis.com/bdjobs/recruiter/logos/20966_0.png
+  [204] POST analytics.google.com/g/collect
+         ?v=2&tid=G-SYKSQBQWNR&gtm=45je65d0h1v9209348498za200zd9209348498&_p=1779096776351&_gaz=1&gcd=13l3l3l3l1l1&npa=0&dma=0&eci

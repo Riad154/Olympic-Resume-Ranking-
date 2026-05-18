@@ -1,0 +1,27 @@
+﻿=== LOGIN REQUEST ===
+URL: https://api.bdjobs.com/auth/api/Login/Login
+
+--- Request Headers ---
+  accept: application/json, text/plain, */*
+  content-type: application/json
+  origin: https://recruiter.bdjobs.com
+  referer: https://recruiter.bdjobs.com/
+  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36
+
+--- Request Body ---
+{"userName":"olympicbd","password":"machang*","systemId":2}
+
+--- Response Headers ---
+  content-type: application/json; charset=utf-8
+
+--- Response Body (first 3000 chars) ---
+{"event":{"eventType":1,"eventData":[{"key":"message","value":{"message":"successfuly login","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJVc2VySWQiOiJQUlkwSVJaPSIsIkNvbXBhbnlJZCI6IlppQzZQaVk9IiwiQ29tcGFueUNvb2tpZSI6IntcIkxvZ2luVG9rZW5cIjpcIjA1MjUwZjJkMTk3MDU1OTZlYWI1YmUxZmRlZDYyODU5MzNhNDY2MDY0ODlkNWMxY2RkMWI4ZTJlMDgzZmNkYWRcIixcIkNvbU5vXCI6XCJaaUM2UGlZPVwiLFwiQ29tVXNyQWNjXCI6XCJQUlkwSVJaPVwiLFwiU0NvZGVFbXBsXCI6XCJvbHkyMzAyNVwiLFwiRGVjb2RlZElkXCI6XCI2Mjc1NUI3OFwifSIsIklzTGlua2VkV2l0aEpvYnNlZWtlciI6IkZhbHNlIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjpbIkNvcnBvcmF0ZSIsIkNvcnBvcmF0ZV9BZG1pbiIsIkNvcnBvcmF0ZV9Vc2VyIl0sImV4cCI6MTc3OTA5Nzk5NCwiaXNzIjoiYmRqb2JzLmNvbSIsImF1ZCI6IioifQ.Nk4uosEBvLfukDQuTl-0O8WT0i0vf2HAVkxWPu0LVU4","refreshToken":"b14fbe79-7b7c-4406-b05f-912fc5ebdc62","encryptId":"PRY0IRZ="}}],"eventId":1003}}
+
+
+=== SUPPORTING INFO REQUEST ===
+URL: https://api.bdjobs.com/auth/api/Login/GetSupportingInfo
+--- Request Headers (auth-relevant) ---
+  origin: https://recruiter.bdjobs.com
+  referer: https://recruiter.bdjobs.com/
+--- Response Body (first 2000 chars) ---
+{"EntrepreneurCompany":false,"Name":"Olympic Industries Limited","Email":"shahriar.shafiq@olympicbd.com","BillingContact":"Shahriar Shafiq","CompanyCountry":"Bangladesh","CreatedDate":"2005-08-02T03:05:00","UserName":"olympicbd","CompanyCity":"Dhaka","AdminUserType":true,"VerificationStatus":true,"NidVerify":false,"SalesPersonName":"Aninda Bin Alam","SalesPersonDesignation":"Assistant Manager, Corporate Sales","SalesPersonContact":"01847027511","SalesPersonEmail":"ani@bdjobs.com","SalesPersonImage":"Contact_59.jpg","CvSearchAccess":false,"JobPostingAccess":false,"RemainingDaysCv":0,"RemainingDaysJob":0,"RemainingCv":null,"JobPostingLimit":null,"CvSearchService":null,"SmsPurchased":100,"SmsSend":6,"SmsRemaining":94,"PaymentProcess":true,"CustomizeUrl":false,"SmsPackage":true,"CorporateEmailService":false,"ApiAccessCvExport":true,"CompanyActiveLogoURL":"https://corporate.bdjobs.com/logos/20966_0.png","LastPostingDate":"04/12/2026 10:01:00","TotalPostedJob":43,"TotalJobfairJob":0,"JobPostingService":null,"EmployeeMaxSize":500,"EmployeeId":243,"isCustomizeURL":false}
