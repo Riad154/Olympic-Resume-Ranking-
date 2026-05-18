@@ -235,37 +235,68 @@ def main():
                     break
 
             if user_sel and pass_sel and submit_sel:
-                # Clear fields first, then type (more realistic than fill)
-                page.click(user_sel, timeout=5000)
-                page.keyboard.press("Control+a")
-                page.keyboard.press("Delete")
-                page.type(user_sel, creds["username"], delay=50, timeout=5000)
+                # Method 1: Use JavaScript to set values (more reliable with Angular/SPA)
+                page.evaluate(
+                    """([userSel, passSel, userVal, passVal]) => {
+                        const u = document.querySelector(userSel);
+                        const p = document.querySelector(passSel);
+                        if (u) { u.value = userVal; u.dispatchEvent(new Event('input', {bubbles:true})); u.dispatchEvent(new Event('change', {bubbles:true})); }
+                        if (p) { p.value = passVal; p.dispatchEvent(new Event('input', {bubbles:true})); p.dispatchEvent(new Event('change', {bubbles:true})); }
+                    }""",
+                    [user_sel, pass_sel, creds["username"], creds["password"]]
+                )
+                print(f"[INFO] Credentials set via JS. user_sel={user_sel}, pass_sel={pass_sel}")
 
-                page.click(pass_sel, timeout=5000)
-                page.keyboard.press("Control+a")
-                page.keyboard.press("Delete")
-                page.type(pass_sel, creds["password"], delay=50, timeout=5000)
+                # Small delay for Angular to pick up the changes
+                time.sleep(1)
 
-                print(f"[INFO] Credentials typed. Submitting via {submit_sel} …")
+                # Method A: Click submit button
+                print(f"[INFO] Clicking submit button: {submit_sel}")
                 page.click(submit_sel, timeout=5000)
-                print("[INFO] Form submitted. Waiting for navigation …")
 
-                # Wait for either navigation or error message
-                try:
-                    # Wait up to 15s for the page to settle after submit
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                except Exception:
-                    pass
+                # Wait and poll for result (Angular SPA may not navigate)
+                print("[INFO] Polling for login result …")
+                result = None
+                for _ in range(20):  # poll for up to 20 seconds
+                    time.sleep(1)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=5000)
+                    except Exception:
+                        pass
+                    body_text = (page.evaluate("() => document.body.innerText") or "").lower()
+                    url = page.url.lower()
 
-                # Check immediately if "Invalid Credentials" appeared
-                body_text = (page.evaluate("() => document.body.innerText") or "").lower()
-                if "invalid credentials" in body_text:
+                    # Success indicators
+                    if "signin" not in url and "login" not in url and ("dashboard" in body_text or "logout" in body_text or "my jobs" in body_text or "job dashboard" in body_text):
+                        result = "success"
+                        break
+                    # Error indicators
+                    if "invalid credentials" in body_text:
+                        result = "invalid_creds"
+                        break
+                    if "captcha" in body_text or "i'm not a robot" in body_text:
+                        result = "captcha"
+                        break
+                    if "too many" in body_text or "temporarily blocked" in body_text:
+                        result = "blocked"
+                        break
+
+                if result == "success":
+                    print("[INFO] Login appears successful (detected logged-in UI).")
+                    login_ok = True
+                elif result == "invalid_creds":
                     print("[ERROR] BDJobs returned 'Invalid Credentials'. The username or password is wrong.")
                     print("        Username used: " + creds["username"])
-                    print("        If you recently changed your BDJobs password, update the BDJOBS_PASS secret.")
+                    login_ok = False
+                elif result == "captcha":
+                    print("[ERROR] BDJobs is showing a CAPTCHA challenge.")
+                    login_ok = False
+                elif result == "blocked":
+                    print("[ERROR] Account temporarily blocked due to too many failed attempts.")
                     login_ok = False
                 else:
-                    login_ok = True
+                    print("[WARN] Could not determine login result from polling. Checking auth state …")
+                    login_ok = True  # Let _is_logged_in() decide below
             else:
                 print(f"[WARN] Could not find all login form fields.")
                 print(f"        user_field={user_sel}, pass_field={pass_sel}, submit={submit_sel}")
