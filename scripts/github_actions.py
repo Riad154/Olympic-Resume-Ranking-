@@ -88,6 +88,7 @@ def trigger_bdjobs_scrape(
     job_url: str,
     max_candidates: int = 0,
     department: str = "Uncategorized",
+    force_relogin: bool = False,
 ) -> tuple[bool, str]:
     """
     Trigger the BDJobs scraper GitHub Actions workflow.
@@ -130,6 +131,7 @@ def trigger_bdjobs_scrape(
             "job_url": job_url,
             "max_candidates": str(max_candidates),
             "department": department,
+            "force_relogin": str(force_relogin).lower(),
         },
     }
 

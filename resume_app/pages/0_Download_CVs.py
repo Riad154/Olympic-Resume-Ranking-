@@ -576,6 +576,12 @@ if on_cloud:
             help="0 = download all applicants. Set a limit for testing.",
         )
         gha_dept = st.selectbox("Department", DEPARTMENT_LIST, index=0)
+        gha_force_login = st.checkbox(
+            "🔄 Force fresh login (clear old BDJobs session)",
+            value=False,
+            help="Check this if the scraper fails with 'Session is not authenticated'. "
+                 "It will clear the saved browser session and do a fresh login.",
+        )
         submitted_gha = st.form_submit_button(
             "🚀 Trigger GitHub Actions Sync", type="primary", use_container_width=True,
         )
@@ -605,6 +611,7 @@ if on_cloud:
                 job_url=gha_url.strip(),
                 max_candidates=int(gha_max),
                 department=gha_dept,
+                force_relogin=gha_force_login,
             )
             if ok:
                 st.success(msg)
