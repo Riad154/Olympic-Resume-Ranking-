@@ -302,28 +302,86 @@ class BDJobsAPIClient:
         Attempt to download the candidate's uploaded CV.
         Returns status string.
         """
-        # BDJobs CV download URL is not exposed in the applicant JSON directly.
-        # We try to construct or discover it.
-        # Common pattern observed in BDJobs: CVs are served from corporate3.bdjobs.com
-        # with a URL containing the ApplyID and a token.
-        #
-        # Fallback: we can open the profile popup endpoint which may expose the CV URL.
         apply_id = str(applicant.get("ApplyID", ""))
+        job_no = str(applicant.get("JobNo", ""))
         if not apply_id:
             return "failed_no_applyid"
 
-        # Strategy 1: Try the profile-details endpoint (some BDJobs versions expose CV link here)
+        # Debug: dump applicant fields once
+        if not hasattr(self, "_debug_applicant_done"):
+            self._debug_applicant_done = True
+            print(f"[DEBUG] Applicant fields: {list(applicant.keys())}", flush=True)
+            for k in list(applicant.keys()):
+                v = applicant[k]
+                if isinstance(v, str) and len(v) > 200:
+                    print(f"  {k}: {v[:100]}... (len={len(v)})", flush=True)
+                else:
+                    print(f"  {k}: {v}", flush=True)
+
+        # Strategy 1: API-based CV download (newer BDJobs API)
+        api_cv_url = (
+            f"{API_BASE}/DownloadCV"
+            f"?CompanyId={self.company_id}"
+            f"&ApplyID={apply_id}"
+            f"&JobNo={job_no}"
+        )
+        try:
+            r = self.session.get(api_cv_url, timeout=60)
+            print(f"[DEBUG] API CV download HTTP {r.status_code} len={len(r.content)}", flush=True)
+            if r.status_code == 200 and r.content[:4] == b"%PDF":
+                with open(out_path, "wb") as f:
+                    f.write(r.content)
+                return "success"
+        except Exception as e:
+            print(f"[DEBUG] API CV download failed: {e}", flush=True)
+
+        # Strategy 2: Web-based CV download with encrypt_id
+        enc = self.encrypt_id or ""
+        cv_url = f"{CORP_BASE}/getcv.asp?ApplyID={apply_id}&JobNo={job_no}&enc={enc}"
+        try:
+            r = self.session.get(cv_url, timeout=60)
+            print(f"[DEBUG] getcv.asp HTTP {r.status_code} len={len(r.content)}", flush=True)
+            if r.status_code == 200 and r.content[:4] == b"%PDF":
+                with open(out_path, "wb") as f:
+                    f.write(r.content)
+                return "success"
+            # Sometimes BDJobs returns HTML redirect or JS redirect
+            if "pdf" in r.text.lower()[:500]:
+                m = re.search(r'href=["\']([^"\']+\.pdf[^"\']*)["\']', r.text, re.IGNORECASE)
+                if m:
+                    pdf_url = m.group(1)
+                    if pdf_url.startswith("/"):
+                        pdf_url = CORP_BASE + pdf_url
+                    pdf_r = self.session.get(pdf_url, timeout=60)
+                    if pdf_r.status_code == 200 and pdf_r.content[:4] == b"%PDF":
+                        with open(out_path, "wb") as f:
+                            f.write(pdf_r.content)
+                        return "success"
+        except Exception as e:
+            print(f"[DEBUG] getcv.asp failed: {e}", flush=True)
+
+        # Strategy 3: Alternative endpoint viewcv.asp
+        viewcv_url = f"{CORP_BASE}/viewcv.asp?ApplyID={apply_id}&JobNo={job_no}"
+        try:
+            r = self.session.get(viewcv_url, timeout=60)
+            print(f"[DEBUG] viewcv.asp HTTP {r.status_code} len={len(r.content)}", flush=True)
+            if r.status_code == 200 and r.content[:4] == b"%PDF":
+                with open(out_path, "wb") as f:
+                    f.write(r.content)
+                return "success"
+        except Exception as e:
+            print(f"[DEBUG] viewcv.asp failed: {e}", flush=True)
+
+        # Strategy 4: Profile popup endpoint (scrape for CV link)
         detail_url = (
             f"{CORP_BASE}/ApplicantMessage.asp"
-            f"?JobNo={applicant.get('JobNo', '')}"
+            f"?JobNo={job_no}"
             f"&ApplyID={apply_id}"
             f"&domain=recruiter"
         )
         try:
             r = self.session.get(detail_url, timeout=30)
-            # If response contains a CV PDF link, extract it
             if "pdf" in r.text.lower() or ".pdf" in r.text:
-                # Extract first .pdf URL
                 m = re.search(r'href=["\']([^"\']+\.pdf[^"\']*)["\']', r.text, re.IGNORECASE)
                 if m:
                     pdf_url = m.group(1)
@@ -336,18 +394,6 @@ class BDJobsAPIClient:
                         return "success"
         except Exception as e:
             print(f"[DEBUG] Detail-page CV extraction failed: {e}", flush=True)
-
-        # Strategy 2: Direct corporate3 CV download endpoint (observed in some BDJobs versions)
-        # This is a guess based on common BDJobs URL patterns
-        cv_url = f"{CORP_BASE}/getcv.asp?ApplyID={apply_id}&JobNo={applicant.get('JobNo', '')}"
-        try:
-            r = self.session.get(cv_url, timeout=60)
-            if r.status_code == 200 and r.content[:4] == b"%PDF":
-                with open(out_path, "wb") as f:
-                    f.write(r.content)
-                return "success"
-        except Exception as e:
-            print(f"[DEBUG] Direct CV URL failed: {e}", flush=True)
 
         return "failed_cv_not_found"
 
