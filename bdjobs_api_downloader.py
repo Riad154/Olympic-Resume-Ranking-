@@ -277,6 +277,10 @@ class BDJobsAPIClient:
             if pg == 1:
                 total_reported = data.get("TotalCVFound", 0)
                 print(f"[INFO] Total candidates reported: {total_reported}", flush=True)
+                # Debug: dump first applicant's keys
+                first = data.get("Applicants", [{}])[0]
+                print(f"[DEBUG] First applicant keys: {list(first.keys())}", flush=True)
+                print(f"[DEBUG] First applicant sample: {json.dumps(first)[:500]}", flush=True)
             batch = data.get("Applicants", [])
             if not batch:
                 print(f"[INFO] Empty page {pg}, stopping.", flush=True)
