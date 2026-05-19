@@ -55,6 +55,7 @@ jobs:
           BDJOBS_COMPANY_ID: ${{ secrets.BDJOBS_COMPANY_ID }}
           BDJOBS_ENCRYPT_ID: ${{ secrets.BDJOBS_ENCRYPT_ID }}
         run: |
+          set -e
           echo "=== Extract jobno from URL ==="
           JOB_URL="${{ github.event.inputs.job_url }}"
           JOBNO=$(python -c "from urllib.parse import parse_qs, urlparse; u='${JOB_URL}'; q=parse_qs(urlparse(u).query); print(q.get('jobno',[0])[0])")
@@ -64,6 +65,11 @@ jobs:
             exit 1
           fi
 
+          MAX=${{ github.event.inputs.max_candidates }}
+          if [ -z "$MAX" ] || [ "$MAX" = "0" ]; then
+            MAX=0
+          fi
+
           echo "=== Download CVs via API (using stored JWT) ==="
           python bdjobs_api_downloader.py \
             --jwt "${{ secrets.BDJOBS_JWT }}" \
@@ -71,7 +77,7 @@ jobs:
             --encrypt-id "${{ secrets.BDJOBS_ENCRYPT_ID }}" \
             --jobno "$JOBNO" \
             --label "${{ github.event.inputs.job_label }}" \
-            --max-candidates ${{ github.event.inputs.max_candidates || 0 }}
+            --max-candidates "$MAX"
 
       - name: Commit downloaded CVs
         continue-on-error: true
@@ -82,13 +88,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git add downloaded_resumes/
-          $diff = git diff --cached --quiet 2>&1
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "No new CVs to commit"
-          } else {
+          if git diff --cached --quiet; then
+            echo "No new CVs to commit"
+          else
             git commit -m "Add CVs for ${{ github.event.inputs.job_label }} via GitHub Actions"
             git push origin ${{ github.ref_name }}
-          }
+          fi
 
       - name: Upload CVs artifact
         if: always()
