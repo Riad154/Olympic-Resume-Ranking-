@@ -77,6 +77,7 @@ jobs:
             --encrypt-id "${{ secrets.BDJOBS_ENCRYPT_ID }}" \
             --jobno "$JOBNO" \
             --label "${{ github.event.inputs.job_label }}" \
+            --job-title "${{ github.event.inputs.job_label }}" \
             --max-candidates "$MAX"
 
       - name: Commit downloaded CVs

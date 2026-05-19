@@ -32,11 +32,13 @@ from urllib.parse import parse_qs, urlparse, quote
 import requests
 
 # ── Constants ──────────────────────────────────────────────────────────────
-LOGIN_URL    = "https://api.bdjobs.com/auth/api/Login/Login"
-SUPPORT_URL  = "https://corporate3.bdjobs.com/SupportingData-test.asp"
-API_BASE     = "https://testmongo.bdjobs.com/api/api"
-REC_BASE     = "https://recruiter.bdjobs.com"
-CORP_BASE    = "https://corporate3.bdjobs.com"
+LOGIN_URL       = "https://api.bdjobs.com/auth/api/Login/Login"
+SUPPORT_URL     = "https://corporate3.bdjobs.com/SupportingData-test.asp"
+API_BASE        = "https://testmongo.bdjobs.com/api/api"
+V1_API_BASE     = "https://testmongo.bdjobs.com/v1/api"
+REC_BASE        = "https://recruiter.bdjobs.com"
+CORP_BASE       = "https://corporate3.bdjobs.com"
+PDF_GENERATOR   = "https://recruiter.bdjobs.com/profilepdfgenerator/api/PdfGenerator/generate-pdf-zip"
 
 SESSION_FILE = "bdjobs_api_session.json"
 UI_PAGE_SIZE = 50
@@ -297,105 +299,78 @@ class BDJobsAPIClient:
             print(f"[INFO] Deduplicated: {len(all_applicants)} → {len(uniq)}", flush=True)
         return uniq
 
-    def download_cv(self, applicant: dict, out_path: str) -> str:
+    def _get_applicant_id(self, job_no: str, apply_id: str) -> int | None:
+        """Call CheckValidity to get the numeric ApplicantId from ApplyID."""
+        url = f"{V1_API_BASE}/JobInformation/CheckValidity"
+        payload = {
+            "Data": {
+                "JobId": job_no,
+                "ApplyId": apply_id,
+                "JobType": ""
+            }
+        }
+        try:
+            r = self.session.post(url, json=payload, timeout=30)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("statusCode") == 0:
+                    applicant_id = data.get("data", {}).get("ApplicantId")
+                    if applicant_id:
+                        return int(applicant_id)
+            print(f"[DEBUG] CheckValidity HTTP {r.status_code} resp={r.text[:200]}", flush=True)
+        except Exception as e:
+            print(f"[DEBUG] CheckValidity failed: {e}", flush=True)
+        return None
+
+    def download_cv(self, applicant: dict, out_path: str, job_title: str = "") -> str:
         """
-        Attempt to download the candidate's uploaded CV.
+        Download candidate CV via BDJobs PDF generator.
+        Flow: CheckValidity -> get ApplicantId -> POST generate-pdf-zip.
         Returns status string.
         """
         apply_id = str(applicant.get("ApplyID", ""))
         job_no = str(applicant.get("JobNo", ""))
-        if not apply_id:
+        name = str(applicant.get("Name", "unnamed"))
+        if not apply_id or not job_no:
             return "failed_no_applyid"
 
-        # Debug: dump applicant fields once
-        if not hasattr(self, "_debug_applicant_done"):
-            self._debug_applicant_done = True
-            print(f"[DEBUG] Applicant fields: {list(applicant.keys())}", flush=True)
-            for k in list(applicant.keys()):
-                v = applicant[k]
-                if isinstance(v, str) and len(v) > 200:
-                    print(f"  {k}: {v[:100]}... (len={len(v)})", flush=True)
-                else:
-                    print(f"  {k}: {v}", flush=True)
+        # Step 1: Get numeric ApplicantId via CheckValidity
+        applicant_id = self._get_applicant_id(job_no, apply_id)
+        if not applicant_id:
+            print(f"[WARN] Could not resolve ApplicantId for {name} (ApplyID={apply_id})", flush=True)
+            return "failed_no_applicant_id"
 
-        # Strategy 1: API-based CV download (newer BDJobs API)
-        api_cv_url = (
-            f"{API_BASE}/DownloadCV"
-            f"?CompanyId={self.company_id}"
-            f"&ApplyID={apply_id}"
-            f"&JobNo={job_no}"
-        )
+        # Step 2: Call PDF generator
+        salary_raw = str(applicant.get("Salary", "0")).replace(",", "").replace("/", "")
         try:
-            r = self.session.get(api_cv_url, timeout=60)
-            print(f"[DEBUG] API CV download HTTP {r.status_code} len={len(r.content)}", flush=True)
+            expected_salary = int(float(salary_raw)) if salary_raw else 0
+        except ValueError:
+            expected_salary = 0
+
+        payload = {
+            "jobTitle": job_title or applicant.get("JobTitle", ""),
+            "applicantIds": [applicant_id],
+            "jobId": int(job_no) if job_no.isdigit() else 0,
+            "expectedSalary": expected_salary,
+        }
+
+        try:
+            print(f"[DEBUG] PDF gen for {name}: applicantId={applicant_id}, jobId={job_no}", flush=True)
+            r = self.session.post(PDF_GENERATOR, json=payload, timeout=60)
+            print(f"[DEBUG] PDF gen HTTP {r.status_code} len={len(r.content)}", flush=True)
             if r.status_code == 200 and r.content[:4] == b"%PDF":
                 with open(out_path, "wb") as f:
                     f.write(r.content)
                 return "success"
+            elif r.status_code == 200:
+                # Might be JSON error or redirect
+                print(f"[DEBUG] PDF gen response: {r.text[:300]}", flush=True)
+            else:
+                print(f"[DEBUG] PDF gen failed: HTTP {r.status_code}", flush=True)
         except Exception as e:
-            print(f"[DEBUG] API CV download failed: {e}", flush=True)
+            print(f"[DEBUG] PDF gen exception: {e}", flush=True)
 
-        # Strategy 2: Web-based CV download with encrypt_id
-        enc = self.encrypt_id or ""
-        cv_url = f"{CORP_BASE}/getcv.asp?ApplyID={apply_id}&JobNo={job_no}&enc={enc}"
-        try:
-            r = self.session.get(cv_url, timeout=60)
-            print(f"[DEBUG] getcv.asp HTTP {r.status_code} len={len(r.content)}", flush=True)
-            if r.status_code == 200 and r.content[:4] == b"%PDF":
-                with open(out_path, "wb") as f:
-                    f.write(r.content)
-                return "success"
-            # Sometimes BDJobs returns HTML redirect or JS redirect
-            if "pdf" in r.text.lower()[:500]:
-                m = re.search(r'href=["\']([^"\']+\.pdf[^"\']*)["\']', r.text, re.IGNORECASE)
-                if m:
-                    pdf_url = m.group(1)
-                    if pdf_url.startswith("/"):
-                        pdf_url = CORP_BASE + pdf_url
-                    pdf_r = self.session.get(pdf_url, timeout=60)
-                    if pdf_r.status_code == 200 and pdf_r.content[:4] == b"%PDF":
-                        with open(out_path, "wb") as f:
-                            f.write(pdf_r.content)
-                        return "success"
-        except Exception as e:
-            print(f"[DEBUG] getcv.asp failed: {e}", flush=True)
-
-        # Strategy 3: Alternative endpoint viewcv.asp
-        viewcv_url = f"{CORP_BASE}/viewcv.asp?ApplyID={apply_id}&JobNo={job_no}"
-        try:
-            r = self.session.get(viewcv_url, timeout=60)
-            print(f"[DEBUG] viewcv.asp HTTP {r.status_code} len={len(r.content)}", flush=True)
-            if r.status_code == 200 and r.content[:4] == b"%PDF":
-                with open(out_path, "wb") as f:
-                    f.write(r.content)
-                return "success"
-        except Exception as e:
-            print(f"[DEBUG] viewcv.asp failed: {e}", flush=True)
-
-        # Strategy 4: Profile popup endpoint (scrape for CV link)
-        detail_url = (
-            f"{CORP_BASE}/ApplicantMessage.asp"
-            f"?JobNo={job_no}"
-            f"&ApplyID={apply_id}"
-            f"&domain=recruiter"
-        )
-        try:
-            r = self.session.get(detail_url, timeout=30)
-            if "pdf" in r.text.lower() or ".pdf" in r.text:
-                m = re.search(r'href=["\']([^"\']+\.pdf[^"\']*)["\']', r.text, re.IGNORECASE)
-                if m:
-                    pdf_url = m.group(1)
-                    if pdf_url.startswith("/"):
-                        pdf_url = CORP_BASE + pdf_url
-                    pdf_r = self.session.get(pdf_url, timeout=60)
-                    if pdf_r.status_code == 200 and pdf_r.content[:4] == b"%PDF":
-                        with open(out_path, "wb") as f:
-                            f.write(pdf_r.content)
-                        return "success"
-        except Exception as e:
-            print(f"[DEBUG] Detail-page CV extraction failed: {e}", flush=True)
-
-        return "failed_cv_not_found"
+        return "failed_pdf_generation"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -414,6 +389,8 @@ def main():
                         help="EncryptId (optional, used for some endpoints)")
     parser.add_argument("--jobno", required=True)
     parser.add_argument("--label", default="")
+    parser.add_argument("--job-title", default="",
+                        help="Job posting title (used for PDF generation)")
     parser.add_argument("--max-candidates", type=int, default=0)
     parser.add_argument("--min-score", type=float, default=0)
     parser.add_argument("--cv-only", action="store_true")
@@ -570,7 +547,7 @@ def main():
         # Try CV download
         cv_fname = f"{args.jobno}_{safe_name}_{ts}_uploaded.pdf"
         cv_path = os.path.join(cv_dir, cv_fname)
-        status = client.download_cv(applicant, cv_path)
+        status = client.download_cv(applicant, cv_path, job_title=(args.job_title or args.label))
         if status == "success":
             cv_ok += 1
             print(f"  [{i}/{len(applicants)}] CV OK   – {name}", flush=True)
