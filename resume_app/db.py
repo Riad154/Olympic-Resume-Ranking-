@@ -33,33 +33,47 @@ except ImportError:
 
 def _pg_conf():
     """Build PG connection dict from env vars (local/GitHub Actions) or
-    st.secrets (Streamlit Cloud)."""
+    st.secrets (Streamlit Cloud). Returns empty dict if not configured."""
     # Try st.secrets first (Streamlit Cloud)
     try:
         pg = st.secrets.get("postgresql", {})
         if pg:
-            port_str = str(pg.get("port", "5432"))
+            host = (pg.get("host", "") or "").strip()
+            user = (pg.get("user", "") or "").strip()
+            password = (pg.get("password", "") or "").strip()
+            if not host or not user:
+                return {}  # Not configured
+            port_str = str(pg.get("port", "5432") or "5432")
             return {
-                "host":     pg.get("host",     "localhost"),
+                "host":     host,
                 "port":     int(port_str) if port_str else 5432,
-                "dbname":   pg.get("dbname",   "resume_ranking"),
-                "user":     pg.get("user",     "postgres"),
-                "password": pg.get("password", ""),
+                "dbname":   (pg.get("dbname", "") or "").strip() or "resume_ranking",
+                "user":     user,
+                "password": password,
             }
     except Exception:
         pass
 
     # Fall back to environment variables (local / GitHub Actions)
+    host = (os.environ.get("PG_HOST", "") or "").strip()
+    user = (os.environ.get("PG_USER", "") or "").strip()
+    password = (os.environ.get("PG_PASSWORD", "") or "").strip()
+    if not host or not user:
+        return {}  # Not configured
     port_str = os.environ.get("PG_PORT", "5432") or "5432"
     return {
-        "host":     os.environ.get("PG_HOST",     "localhost") or "localhost",
+        "host":     host,
         "port":     int(port_str),
-        "dbname":   os.environ.get("PG_DBNAME",   "resume_ranking") or "resume_ranking",
-        "user":     os.environ.get("PG_USER",     "postgres") or "postgres",
-        "password": os.environ.get("PG_PASSWORD", ""),
+        "dbname":   (os.environ.get("PG_DBNAME", "") or "").strip() or "resume_ranking",
+        "user":     user,
+        "password": password,
     }
 
 PG_CONN = _pg_conf()
+
+def pg_is_configured() -> bool:
+    """Return True if PostgreSQL credentials are set."""
+    return bool(PG_CONN.get("host") and PG_CONN.get("user"))
 
 # Project root = parent of resume_app/
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -1036,6 +1050,14 @@ UPDATE jobs SET department = 'Uncategorized'
 
 def _new_conn():
     """Create a fresh connection and ensure schema + migrations + backfill."""
+    if not pg_is_configured():
+        raise RuntimeError(
+            "PostgreSQL is not configured.\n\n"
+            "For Streamlit Cloud: add your Neon DB credentials in the app secrets\n"
+            "(Settings → Secrets). Required fields: PG_HOST, PG_USER, PG_PASSWORD.\n\n"
+            "For local use: set PG_HOST=localhost, PG_USER=postgres, PG_PASSWORD=yourpassword "
+            "in a .env file or environment variables."
+        )
     conn = psycopg2.connect(**PG_CONN)
     conn.autocommit = True
     ensure_schema(conn)

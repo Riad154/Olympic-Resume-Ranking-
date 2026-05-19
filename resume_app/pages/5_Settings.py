@@ -11,7 +11,7 @@ import requests
 import psycopg2
 import streamlit as st
 from db import (
-    get_conn, get_css, init_theme, render_sidebar, PG_CONN,
+    get_conn, get_css, init_theme, render_sidebar, PG_CONN, pg_is_configured,
     fetch_all_jobs, get_job_department, update_job_status,
     fix_inconsistent_verdicts, associate_candidates_with_job,
     get_bdjobs_credentials, save_bdjobs_credentials,
@@ -62,10 +62,14 @@ st.markdown(f'<div class="section-hd" style="color:{sub_col} !important;border-b
 col1, col2 = st.columns(2, gap="large")
 
 with col1:
-    try:
-        c = psycopg2.connect(**PG_CONN); c.close(); pg_ok=True; pg_msg="Connected"
-    except Exception as e:
-        pg_ok=False; pg_msg=str(e)[:60]
+    if not pg_is_configured():
+        pg_ok = False
+        pg_msg = "Not configured"
+    else:
+        try:
+            c = psycopg2.connect(**PG_CONN); c.close(); pg_ok=True; pg_msg="Connected"
+        except Exception as e:
+            pg_ok=False; pg_msg=str(e)[:60]
 
     try:
         r = requests.get("http://localhost:11434/api/tags", timeout=3)
