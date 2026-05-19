@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          MD. SHAHIN ALAM
+ApplyID:       344435634
+CrpApplID:     39374561998ID1966682
+Email:         shahinalam536810@gmail.com
+Mobile:        01627334373,01627334373
+Degree:        Master of Business Administration (MBA)
+University:    Govt. Titumir College(Affiliated University of Dhaka)
+Experience:    Akij Venture Ltd.##Executive- Market Audit and Business Intelligence (MABI) (1+ year)*|*Bashundhara Group##Executive (MIS, Market Audit & Market Research) (3+ years)
+Location:      Khoksa, Kushtia
+CurrentSalary: 0
+ExpSalary:     38,000
+MatchScore:    100%
+AppliedDate:   5 Mar 2025
+AttachedCV:    No
+ScrapedAt:     2026-05-19T05:47:27.995639
+============================================
+

@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Mohammad Yasin Hossan
+ApplyID:       344394630
+CrpApplID:     21630522002ID1083572
+Email:         ybappy7@gmail.com
+Mobile:        01670199719,
+Degree:        Master of Business Studies (MBS)
+University:    National University
+Experience:    Rahimafrooz##Territory sales officer (4+ years)*|*BRB Cable Industries Limited##Executive (2+ years)
+Location:      Kushtia Sadar, Kushtia
+CurrentSalary: 33,000
+ExpSalary:     40,000
+MatchScore:    100%
+AppliedDate:   5 Mar 2025
+AttachedCV:    No
+ScrapedAt:     2026-05-19T05:47:26.028209
+============================================
+

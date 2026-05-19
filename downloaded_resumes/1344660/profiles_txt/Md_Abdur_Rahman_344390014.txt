@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Md. Abdur Rahman
+ApplyID:       344390014
+CrpApplID:     56439142013ID2819911
+Email:         abdurrahman3901@gmail.com
+Mobile:        01303086167,
+Degree:        Master of Social Science (MSS)
+University:    Comilla University
+Experience:    Tek Group##Accounts Executive (1+ year)*|*NAC No Chinta Home Healthcare Ltd. (National AgriCare & One Pharma Group)##Executive- (Sales & Marketing) (5+ months)
+Location:      Dhanmondi, Dhaka
+CurrentSalary: 28,000
+ExpSalary:     35,000
+MatchScore:    64%
+AppliedDate:   5 Mar 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-05-19T05:47:30.953481
+============================================
+
