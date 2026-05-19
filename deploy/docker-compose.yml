@@ -1,0 +1,55 @@
+# docker-compose.yml — Cloud VPS deployment for Ollama + n8n
+# Run on any VPS with Docker + Docker Compose installed.
+# Optional: add nginx reverse proxy for TLS + basic auth.
+#
+# Usage:
+#   cd deploy && docker compose up -d
+#   # Pull model after Ollama is up:
+#   docker compose exec ollama ollama pull qwen3:8b-q4_K_M
+#
+# Firewall: restrict ports 11434 and 5678 to your Streamlit Cloud app only,
+# or place behind nginx with basic auth (see nginx/ folder).
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=4
+      - OLLAMA_MAX_LOADED_MODELS=2
+    # Uncomment for NVIDIA GPU support (requires nvidia-docker-runtime):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=changeme-strong-password
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Asia/Dhaka
+
+volumes:
+  ollama_data:
+  n8n_data:

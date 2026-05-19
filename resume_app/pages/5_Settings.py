@@ -61,6 +61,13 @@ st.markdown('<hr class="divider" style="border-top:1px solid ' + card_bdr + '">'
 st.markdown(f'<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">System Health</div>', unsafe_allow_html=True)
 col1, col2 = st.columns(2, gap="large")
 
+# ── Configurable service endpoints ────────────────────────────────────────────
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").strip() or "http://localhost:11434"
+N8N_HOST    = os.environ.get("N8N_HOST",    "http://localhost:5678").strip()    or "http://localhost:5678"
+OLLAMA_API  = f"{OLLAMA_HOST}/api/tags"
+OLLAMA_CHAT = f"{OLLAMA_HOST}/api/chat"
+N8N_HEALTH  = f"{N8N_HOST}/healthz"
+
 with col1:
     if not pg_is_configured():
         pg_ok = False
@@ -72,7 +79,7 @@ with col1:
             pg_ok=False; pg_msg=str(e)[:60]
 
     try:
-        r = requests.get("http://localhost:11434/api/tags", timeout=3)
+        r = requests.get(OLLAMA_API, timeout=3)
         ol_ok = r.status_code==200
         models = [m["name"] for m in r.json().get("models",[])] if ol_ok else []
         ol_msg = f"{len(models)} model(s) loaded" if ol_ok else "Not reachable"
@@ -80,7 +87,7 @@ with col1:
         ol_ok=False; ol_msg="Not reachable"; models=[]
 
     try:
-        r2 = requests.get("http://localhost:5678/healthz", timeout=3)
+        r2 = requests.get(N8N_HEALTH, timeout=3)
         n8_ok = r2.status_code==200; n8_msg="Running"
     except:
         n8_ok=False; n8_msg="Not reachable"
@@ -124,7 +131,7 @@ with col2:
             with st.spinner("Testing Ollama..."):
                 try:
                     resp = requests.post(
-                        "http://localhost:11434/api/chat",
+                        OLLAMA_CHAT,
                         json={"model":"qwen3:8b-q4_K_M","format":"json","stream":False,
                               "messages":[
                                   {"role":"system","content":"Return JSON only."},

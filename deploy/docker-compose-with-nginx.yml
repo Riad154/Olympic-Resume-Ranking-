@@ -1,0 +1,68 @@
+# docker-compose-with-nginx.yml — Production setup with reverse proxy
+# Provides TLS + basic auth. Requires a domain pointing to your VPS.
+#
+# Setup:
+#   1. Create htpasswd file: docker run --rm httpd:alpine htpasswd -nb admin your-password > nginx/.htpasswd
+#   2. Update nginx.conf: replace "server_name _;" with your domain
+#   3. Get TLS cert: sudo certbot certonly --standalone -d your-domain.com
+#   4. Start: docker compose -f docker-compose-with-nginx.yml up -d
+#
+# In Streamlit Cloud secrets, set:
+#   OLLAMA_HOST = "https://admin:your-password@your-domain.com/ollama"
+#   N8N_HOST    = "https://admin:your-password@your-domain.com/n8n"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=4
+      - OLLAMA_MAX_LOADED_MODELS=2
+    # Uncomment for GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=changeme-strong-password
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Asia/Dhaka
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
+      # Mount Let's Encrypt certs (optional, for TLS):
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - ollama
+      - n8n
+
+volumes:
+  ollama_data:
+  n8n_data:
