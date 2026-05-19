@@ -2267,6 +2267,46 @@ def _is_streamlit_cloud() -> bool:
         return True
     return False
 
+
+def _groq_available() -> bool:
+    """Return True if Groq API key is configured for cloud LLM ranking."""
+    return bool(os.environ.get("GROQ_API_KEY", "").strip())
+
+
+def _cloud_ranking_available() -> bool:
+    """Ranking works on cloud if Groq API key is set."""
+    return _is_streamlit_cloud() and _groq_available()
+
+
+def run_ranker_inline(job_label: str, jd_path: str = "", department: str = "") -> None:
+    """Run ranker synchronously for Streamlit Cloud (no subprocess).
+
+    Imports ranker.py and calls main_async directly so it runs within the
+    Streamlit request. Requires GROQ_API_KEY to be set.
+    """
+    import asyncio
+    import argparse
+    from pathlib import Path
+
+    # Dynamically import ranker (it's outside the resume_app package)
+    _project_root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(_project_root))
+    import ranker  # noqa: E402
+
+    class Args:
+        job = job_label
+        jd = jd_path
+        department = department or "Uncategorized"
+        rerank = False
+        rerank_id = ""
+        backfill_names = False
+        normalise = True
+        normalise_only = False
+        workers = 3
+
+    args = Args()
+    asyncio.run(ranker.main_async(args))
+
 CSS = """<style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 

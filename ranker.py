@@ -45,6 +45,15 @@ OLLAMA_HOST  = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_URL   = f"{OLLAMA_HOST}/api/chat"
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b-q4_K_M")
 
+# ── Cloud LLM fallback (Groq) ──────────────────────────────────────────────────
+# Groq provides fast inference with a generous free tier (1.4M tokens/day).
+# Set GROQ_API_KEY as a GitHub Secret or in your .env file.
+GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
+GROQ_URL      = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL    = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+# Seed for deterministic outputs when using cloud LLM
+_GROQ_SEED    = 42
+
 PG_CONN = {
     "host":     os.environ.get("PG_HOST", "localhost"),
     "port":     int(os.environ.get("PG_PORT", "5432")),
@@ -1403,6 +1412,90 @@ def normalize_verdict(verdict: str | None) -> str:
     return "Maybe"
 
 
+async def call_groq_async(
+    session: aiohttp.ClientSession,
+    profile_text: str,
+    pdf_text: str,
+    job_label: str,
+    jd_text: str,
+    job_config: dict | None = None,
+    retries: int = 3,
+    use_fallback: bool = False,
+) -> dict:
+    """Call Groq cloud LLM (OpenAI-compatible API) with retry.
+
+    Used as a fallback when Ollama is not reachable (e.g. on Streamlit Cloud).
+    Requires GROQ_API_KEY environment variable.
+    """
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY not set. Cannot use cloud LLM fallback.")
+
+    if use_fallback:
+        user_content = build_fallback_prompt(profile_text, job_label)
+    else:
+        prompt = build_prompt(profile_text, pdf_text, job_label, jd_text, job_config)
+        user_content = prompt
+
+    payload = {
+        "model": GROQ_MODEL,
+        "temperature": 0.1,
+        "max_tokens": 2048,
+        "seed": _GROQ_SEED,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": user_content},
+        ],
+    }
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            async with session.post(
+                GROQ_URL,
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=OLLAMA_TIMEOUT_SECS),
+            ) as resp:
+                resp.raise_for_status()
+                body = await resp.json()
+            content = body["choices"][0]["message"]["content"]
+            parsed = _safe_parse_ollama_response(content)
+            has_data = (
+                any(parsed.get(k, 0) > 0 for k in [
+                    "skills_score", "experience_score", "leadership_score",
+                    "education_score", "culture_fit_score"])
+                or (parsed.get("reasoning") or "").strip()
+            )
+            if has_data:
+                return parsed
+            last_err = ValueError("Groq returned empty/default content")
+            if attempt == retries - 1:
+                raise last_err
+            await asyncio.sleep(2 ** attempt)
+        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, ValueError) as e:
+            last_err = e
+            if attempt == retries - 1:
+                raise
+            await asyncio.sleep(2 ** attempt)
+    raise last_err  # type: ignore[misc]
+
+
+async def _ollama_health_check(host: str, timeout: int = 5) -> bool:
+    """Quickly probe Ollama; return True if it responds."""
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(f"{host}/api/tags", timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+                return r.status == 200
+    except Exception:
+        return False
+
+
 async def call_ollama_async(
     session: aiohttp.ClientSession,
     profile_text: str,
@@ -1415,11 +1508,28 @@ async def call_ollama_async(
 ) -> dict:
     """Call Ollama with retry + exponential backoff.
 
+    If Ollama is unreachable (e.g. on Streamlit Cloud), automatically falls
+    back to Groq cloud LLM if GROQ_API_KEY is configured.
+
     If use_fallback=True, sends a drastically shorter prompt that drops
     the PDF text, education sub-scores, and strengths/gaps — only the 5
     dimension scores + recommendation.  Used as a last resort when the
     full prompt repeatedly fails (usually context-window overflow).
     """
+    # ── Cloud fallback: if Ollama is not healthy, jump straight to Groq ──
+    if not await _ollama_health_check(OLLAMA_HOST):
+        if GROQ_API_KEY:
+            print(f"[LLM] Ollama unreachable at {OLLAMA_HOST} — using Groq ({GROQ_MODEL})")
+            return await call_groq_async(
+                session, profile_text, pdf_text, job_label, jd_text,
+                job_config, retries=retries, use_fallback=use_fallback,
+            )
+        else:
+            raise RuntimeError(
+                f"Ollama not reachable at {OLLAMA_HOST} and GROQ_API_KEY not set. "
+                f"Cannot score candidates. Please start Ollama locally or set GROQ_API_KEY."
+            )
+
     if use_fallback:
         user_content = build_fallback_prompt(profile_text, job_label)
     else:
@@ -1483,6 +1593,13 @@ async def call_ollama_async(
                 raise last_err
             await asyncio.sleep(2 ** attempt)
         except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, ValueError) as e:
+            # Connection errors: if Ollama went down mid-run, try Groq once
+            if "connection" in str(e).lower() and GROQ_API_KEY:
+                print(f"[LLM] Ollama connection lost — falling back to Groq ({GROQ_MODEL})")
+                return await call_groq_async(
+                    session, profile_text, pdf_text, job_label, jd_text,
+                    job_config, retries=2, use_fallback=use_fallback,
+                )
             last_err = e
             if attempt == retries - 1:
                 raise

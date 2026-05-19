@@ -834,12 +834,36 @@ with upload_tab1:
                     st.warning(f"⚠️ {len(ocr_errors)} file(s) failed OCR: {', '.join(ocr_errors[:3])}{'...' if len(ocr_errors) > 3 else ''}")
         with btn_col3:
             if st.button("⚡ Start Ranking Job", type="primary", key="btn_cv_rank", use_container_width=True):
-                if _is_streamlit_cloud():
+                on_cloud = _is_streamlit_cloud()
+                use_groq = _groq_available()
+                if on_cloud and not use_groq:
                     st.error(
-                        "❌ AI ranking is not available on Streamlit Cloud.\n\n"
-                        "The ranker requires a local Ollama LLM server. "
-                        "Please run ranking on your local Windows workstation."
+                        "❌ AI ranking on Streamlit Cloud requires a Groq API key.\n\n"
+                        "Set **GROQ_API_KEY** in your Streamlit secrets to enable cloud ranking. "
+                        "Groq provides a fast, free-tier LLM API (1.4M tokens/day)."
                     )
+                    st.stop()
+                if on_cloud and use_groq:
+                    # First ensure files are processed
+                    if "last_upload_job" not in st.session_state or st.session_state["last_upload_job"] != cv_job:
+                        st.info("Processing CVs first...")
+                        for cv in cv_files:
+                            _process_single_cv(cv, cv_job, cv_dept)
+                    # Run ranker inline
+                    try:
+                        folders = _ensure_upload_folders(cv_job)
+                        jd_path = Path(folders["base"]) / "jd_default.txt"
+                        if not jd_path.exists():
+                            _write_default_jd(folders["base"], cv_job, cv_dept)
+                        with st.spinner("🧠 Ranking candidates via Groq cloud LLM..."):
+                            run_ranker_inline(
+                                _sanitize_label(cv_job),
+                                str(jd_path) if jd_path.exists() else "",
+                                cv_dept,
+                            )
+                        st.success("✅ Ranking complete! Refresh to see results.")
+                    except Exception as e:
+                        st.error(f"❌ Ranking failed: {e}")
                     st.stop()
                 # First ensure files are processed
                 if "last_upload_job" not in st.session_state or st.session_state["last_upload_job"] != cv_job:

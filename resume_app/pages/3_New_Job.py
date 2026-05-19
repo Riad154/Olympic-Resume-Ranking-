@@ -16,7 +16,7 @@ from db import (
     get_css, init_theme, build_prompt_preview,
     DEPARTMENTS, EXPERIENCE_OPTIONS, EDUCATION_OPTIONS,
     COMMON_SKILLS, SKILL_DOMAINS, RED_FLAG_PRESETS, RESUMES_BASE, RANKER_PATH, VENV_PYTHON,
-    _is_streamlit_cloud,
+    _is_streamlit_cloud, _groq_available, run_ranker_inline,
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -508,15 +508,35 @@ if submit_clicked:
             - Estimated time: **~{est_mins} minutes**
         """)
 
-        # Launch the ranker in the background -- no terminal needed.
+        # Launch the ranker
         ranker_started = False
-        if _is_streamlit_cloud():
+        on_cloud = _is_streamlit_cloud()
+        use_groq = _groq_available()
+
+        if on_cloud and not use_groq:
             st.error(
-                "❌ AI ranking is not available on Streamlit Cloud.\n\n"
-                "The ranker requires a local Ollama LLM server. "
-                "Please run ranking on your local Windows workstation."
+                "❌ AI ranking on Streamlit Cloud requires a Groq API key.\n\n"
+                "Set **GROQ_API_KEY** in your Streamlit secrets to enable cloud ranking. "
+                "Groq provides a fast, free-tier LLM API (1.4M tokens/day)."
             )
             st.stop()
+
+        if on_cloud and use_groq:
+            # Streamlit Cloud: run ranker inline (subprocesses don't persist)
+            try:
+                with st.spinner("🧠 Ranking candidates via Groq cloud LLM..."):
+                    run_ranker_inline(
+                        job_label,
+                        jd_file if jd_arg else "",
+                        department or "",
+                    )
+                st.success("✅ Ranking complete! Refresh the page to see results.")
+                ranker_started = True
+            except Exception as e:
+                st.error(f"❌ Ranking failed: {e}")
+            st.stop()
+
+        # Local: spawn background subprocess
         proc = None
         log_path = None
         try:
