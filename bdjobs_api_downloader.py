@@ -277,10 +277,6 @@ class BDJobsAPIClient:
             if pg == 1:
                 total_reported = data.get("TotalCVFound", 0)
                 print(f"[INFO] Total candidates reported: {total_reported}", flush=True)
-                # Debug: dump first applicant's keys
-                first = data.get("Applicants", [{}])[0]
-                print(f"[DEBUG] First applicant keys: {list(first.keys())}", flush=True)
-                print(f"[DEBUG] First applicant sample: {json.dumps(first)[:500]}", flush=True)
             batch = data.get("Applicants", [])
             if not batch:
                 print(f"[INFO] Empty page {pg}, stopping.", flush=True)
@@ -326,14 +322,14 @@ class BDJobsAPIClient:
             print(f"[DEBUG] CheckValidity failed: {e}", flush=True)
         return None
 
-    def download_cv(self, applicant: dict, out_path: str, job_title: str = "") -> str:
+    def download_cv(self, applicant: dict, out_path: str, jobno: str, job_title: str = "") -> str:
         """
         Download candidate CV via BDJobs PDF generator.
         Flow: CheckValidity -> get ApplicantId -> POST generate-pdf-zip.
         Returns status string.
         """
         apply_id = str(applicant.get("ApplyID", ""))
-        job_no = str(applicant.get("JobNo", ""))
+        job_no = str(jobno)
         name = str(applicant.get("Name", "unnamed"))
         if not apply_id or not job_no:
             return "failed_no_applyid"
@@ -551,7 +547,7 @@ def main():
         # Try CV download
         cv_fname = f"{args.jobno}_{safe_name}_{ts}_uploaded.pdf"
         cv_path = os.path.join(cv_dir, cv_fname)
-        status = client.download_cv(applicant, cv_path, job_title=(args.job_title or args.label))
+        status = client.download_cv(applicant, cv_path, jobno=args.jobno, job_title=(args.job_title or args.label))
         if status == "success":
             cv_ok += 1
             print(f"  [{i}/{len(applicants)}] CV OK   – {name}", flush=True)
