@@ -360,6 +360,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--username", default=os.environ.get("BDJOBS_USER", "").strip())
     parser.add_argument("--password", default=os.environ.get("BDJOBS_PASS", "").strip())
+    parser.add_argument("--jwt", default=os.environ.get("BDJOBS_JWT", "").strip(),
+                        help="Pre-authenticated JWT token (skips login, avoids IP blocking)")
+    parser.add_argument("--company-id", default=os.environ.get("BDJOBS_COMPANY_ID", "").strip(),
+                        help="Company ID (required when using --jwt)")
+    parser.add_argument("--encrypt-id", default=os.environ.get("BDJOBS_ENCRYPT_ID", "").strip(),
+                        help="EncryptId (optional, used for some endpoints)")
     parser.add_argument("--jobno", required=True)
     parser.add_argument("--label", default="")
     parser.add_argument("--max-candidates", type=int, default=0)
@@ -371,32 +377,42 @@ def main():
     parser.add_argument("--force-login", action="store_true", help="Ignore cached session and re-login")
     args = parser.parse_args()
 
-    if not args.username or not args.password:
-        print("[ERROR] BDJOBS_USER / BDJOBS_PASS required (env var or --username/--password)", flush=True)
-        sys.exit(1)
-
-    # ── Auth ──────────────────────────────────────────────────────────
+    # ── Auth: prefer JWT token (skip login), else fall back to username/password ──
     session = None
-    if not args.force_login:
-        session = _load_session()
-        if session:
-            print(f"[INFO] Reusing cached session", flush=True)
+    client = None
 
-    if session is None:
-        client = BDJobsAPIClient.login(args.username, args.password)
-        session = {
-            "token": client.token,
-            "company_id": client.company_id,
-            "encrypt_id": client.encrypt_id,
-            "saved_at": _now(),
-        }
-        _save_session(session)
-    else:
+    if args.jwt and args.company_id:
+        print("[INFO] Using pre-authenticated JWT token (skipping login)", flush=True)
         client = BDJobsAPIClient(
-            token=session["token"],
-            company_id=session.get("company_id"),
-            encrypt_id=session.get("encrypt_id"),
+            token=args.jwt,
+            company_id=args.company_id,
+            encrypt_id=args.encrypt_id or None,
         )
+    else:
+        # Try cached session first
+        if not args.force_login:
+            session = _load_session()
+            if session:
+                print(f"[INFO] Reusing cached session", flush=True)
+
+        if session is None:
+            if not args.username or not args.password:
+                print("[ERROR] Either --jwt + --company-id OR --username + --password required", flush=True)
+                sys.exit(1)
+            client = BDJobsAPIClient.login(args.username, args.password)
+            session = {
+                "token": client.token,
+                "company_id": client.company_id,
+                "encrypt_id": client.encrypt_id,
+                "saved_at": _now(),
+            }
+            _save_session(session)
+        else:
+            client = BDJobsAPIClient(
+                token=session["token"],
+                company_id=session.get("company_id"),
+                encrypt_id=session.get("encrypt_id"),
+            )
 
     if not client.company_id:
         print("[ERROR] Could not determine CompanyId. Aborting.", flush=True)

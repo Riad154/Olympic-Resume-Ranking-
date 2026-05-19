@@ -29,79 +29,49 @@ on:
 
 jobs:
   scrape:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    defaults:
-      run:
-        shell: powershell
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify Python
-        run: |
-          python --version
-          Write-Host "[OK] Python found"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-      - name: Install / update dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          playwright install chromium
 
-      - name: Login to BDJobs
+      - name: Extract jobno and download CVs via API
         env:
           PYTHONUNBUFFERED: "1"
-          BDJOBS_USER: ${{ secrets.BDJOBS_USER }}
-          BDJOBS_PASS: ${{ secrets.BDJOBS_PASS }}
-          PG_HOST:     ${{ secrets.PG_HOST }}
-          PG_PORT:     ${{ secrets.PG_PORT }}
-          PG_DBNAME:   ${{ secrets.PG_DBNAME }}
-          PG_USER:     ${{ secrets.PG_USER }}
-          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
+          BDJOBS_JWT: ${{ secrets.BDJOBS_JWT }}
+          BDJOBS_COMPANY_ID: ${{ secrets.BDJOBS_COMPANY_ID }}
+          BDJOBS_ENCRYPT_ID: ${{ secrets.BDJOBS_ENCRYPT_ID }}
         run: |
-          Write-Host "=== Step 1: Login ==="
-          $forceFlag = ""
-          if ("${{ github.event.inputs.force_relogin }}" -eq "true") {
-            $forceFlag = "--force"
-            Write-Host "[INFO] Force re-login requested"
-          }
-          python bdjobs_auto_login.py --username "${{ secrets.BDJOBS_USER }}" --password "${{ secrets.BDJOBS_PASS }}" --headless $forceFlag
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "[ERROR] Login failed"
+          echo "=== Extract jobno from URL ==="
+          JOB_URL="${{ github.event.inputs.job_url }}"
+          JOBNO=$(python -c "from urllib.parse import parse_qs, urlparse; u='${JOB_URL}'; q=parse_qs(urlparse(u).query); print(q.get('jobno',[0])[0])")
+          echo "[INFO] JobNo = $JOBNO"
+          if [ "$JOBNO" = "0" ] || [ -z "$JOBNO" ]; then
+            echo "[ERROR] Could not extract jobno from URL: $JOB_URL"
             exit 1
-          }
-          Write-Host "=== Session dir contents ==="
-          if (Test-Path "bdjobs_session") { Get-ChildItem -Path "bdjobs_session" } else { Write-Host "No bdjobs_session/ found" }
+          fi
 
-      - name: Download CVs
-        env:
-          PYTHONUNBUFFERED: "1"
-        run: |
-          Write-Host "=== Step 2: Download CVs ==="
-          python bdjobs_downloader.py --label "${{ github.event.inputs.job_label }}" --url "${{ github.event.inputs.job_url }}" --max-candidates ${{ github.event.inputs.max_candidates || 0 }} --headless
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "[ERROR] Download failed"
-            exit 1
-          }
-
-      - name: Upload debug artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-${{ github.run_number }}
-          path: |
-            _login_failure.png
-            _login_before.png
-            _login_page_dump.html
-            _login_failure_page.html
-            downloaded_resumes/**/_failure_screenshot.png
-            downloaded_resumes/**/_pagination_failure.png
-          if-no-files-found: ignore
-          retention-days: 3
+          echo "=== Download CVs via API (using stored JWT) ==="
+          python bdjobs_api_downloader.py \
+            --jwt "${{ secrets.BDJOBS_JWT }}" \
+            --company-id "${{ secrets.BDJOBS_COMPANY_ID }}" \
+            --encrypt-id "${{ secrets.BDJOBS_ENCRYPT_ID }}" \
+            --jobno "$JOBNO" \
+            --label "${{ github.event.inputs.job_label }}" \
+            --max-candidates ${{ github.event.inputs.max_candidates || 0 }}
 
       - name: Commit downloaded CVs
         continue-on-error: true
