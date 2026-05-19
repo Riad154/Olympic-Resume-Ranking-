@@ -81,15 +81,10 @@ with col1:
     except:
         n8_ok=False; n8_msg="Not reachable"
 
-    groq_key = os.environ.get("GROQ_API_KEY", "")
-    groq_ok = bool(groq_key.strip())
-    groq_msg = "API key configured" if groq_ok else "Not configured"
-
     for label, ok, msg in [
         ("PostgreSQL", pg_ok, pg_msg),
         ("Ollama",     ol_ok, ol_msg),
         ("n8n",        n8_ok, n8_msg),
-        ("Groq (cloud LLM)", groq_ok, groq_msg),
     ]:
         dot = "🟢" if ok else "🔴"
         st.markdown(f"""

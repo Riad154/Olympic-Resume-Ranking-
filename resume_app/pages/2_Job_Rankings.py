@@ -30,8 +30,6 @@ from db import (
     render_sidebar,
     safe_switch_page,
     _is_streamlit_cloud,
-    _groq_available,
-    run_ranker_inline,
 )
 
 # ── Page config ──────────────────────────────────────────────────────────────
@@ -1101,26 +1099,11 @@ def render_detail():
             if is_suspect:
                 st.warning("⚠️ This candidate may have been scored incorrectly (all dimensions are identical). Consider re-ranking.")
             if st.button("🔄  Re-rank This Candidate", type="secondary", key=f"rerank_{apply_id}", use_container_width=True):
-                on_cloud = _is_streamlit_cloud()
-                use_groq = _groq_available()
-                if on_cloud and not use_groq:
+                if _is_streamlit_cloud():
                     st.error(
-                        "❌ Re-ranking on Streamlit Cloud requires a Groq API key.\n\n"
-                        "Set **GROQ_API_KEY** in your Streamlit secrets."
+                        "❌ Re-ranking requires a local Ollama LLM server and is not available on Streamlit Cloud."
                     )
                     st.stop()
-                if on_cloud and use_groq:
-                    # Run inline on cloud
-                    try:
-                        from db import run_ranker_inline
-                        with st.spinner(f"🧠 Re-ranking {name} via Groq..."):
-                            run_ranker_inline(job_label, "", "")
-                        st.success(f"✅ Re-ranked {name} successfully. Refreshing...")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Re-rank failed: {str(e)[:300]}")
-                    st.stop()
-                # Local: spawn subprocess
                 try:
                     import subprocess as _sp
                     from pathlib import Path as _Path
