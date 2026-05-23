@@ -64,10 +64,21 @@ col1, col2 = st.columns(2, gap="large")
 # ── Configurable service endpoints (st.secrets takes priority over env vars) ──
 def _get_secret(key, default):
     try:
-        if key in st.secrets:
-            val = st.secrets[key]
+        secrets = st.secrets
+        # Try top-level key directly
+        if key in secrets:
+            val = secrets[key]
             if val and str(val).strip():
                 return str(val).strip()
+        # Try inside [services] section
+        if "services" in secrets and key in secrets["services"]:
+            val = secrets["services"][key]
+            if val and str(val).strip():
+                return str(val).strip()
+        # Try as dict (some Streamlit versions)
+        d = dict(secrets)
+        if key in d and d[key] and str(d[key]).strip():
+            return str(d[key]).strip()
     except Exception:
         pass
     return (os.environ.get(key, "") or "").strip() or default
@@ -79,7 +90,11 @@ OLLAMA_CHAT = f"{OLLAMA_HOST}/api/chat"
 N8N_HEALTH  = f"{N8N_HOST}/healthz"
 
 with st.expander("🔍 Debug: Service URLs (click to expand)"):
-    st.code(f"OLLAMA_HOST = {OLLAMA_HOST}\nN8N_HOST    = {N8N_HOST}\nOLLAMA_API  = {OLLAMA_API}\nN8N_HEALTH  = {N8N_HEALTH}")
+    try:
+        secret_keys = list(st.secrets.keys())
+    except Exception as ex:
+        secret_keys = [f"Error: {ex}"]
+    st.code(f"OLLAMA_HOST = {OLLAMA_HOST}\nN8N_HOST    = {N8N_HOST}\nOLLAMA_API  = {OLLAMA_API}\nN8N_HEALTH  = {N8N_HEALTH}\n\nAll secret keys: {secret_keys}")
 
 with col1:
     if not pg_is_configured():
