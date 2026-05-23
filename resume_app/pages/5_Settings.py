@@ -61,9 +61,18 @@ st.markdown('<hr class="divider" style="border-top:1px solid ' + card_bdr + '">'
 st.markdown(f'<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">System Health</div>', unsafe_allow_html=True)
 col1, col2 = st.columns(2, gap="large")
 
-# ── Configurable service endpoints ────────────────────────────────────────────
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").strip() or "http://localhost:11434"
-N8N_HOST    = os.environ.get("N8N_HOST",    "http://localhost:5678").strip()    or "http://localhost:5678"
+# ── Configurable service endpoints (st.secrets takes priority over env vars) ──
+def _get_secret(key, default):
+    try:
+        val = st.secrets.get(key, "")
+        if val and str(val).strip():
+            return str(val).strip()
+    except Exception:
+        pass
+    return (os.environ.get(key, "") or "").strip() or default
+
+OLLAMA_HOST = _get_secret("OLLAMA_HOST", "http://localhost:11434")
+N8N_HOST    = _get_secret("N8N_HOST",    "http://localhost:5678")
 OLLAMA_API  = f"{OLLAMA_HOST}/api/tags"
 OLLAMA_CHAT = f"{OLLAMA_HOST}/api/chat"
 N8N_HEALTH  = f"{N8N_HOST}/healthz"
