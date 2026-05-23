@@ -78,6 +78,9 @@ OLLAMA_API  = f"{OLLAMA_HOST}/api/tags"
 OLLAMA_CHAT = f"{OLLAMA_HOST}/api/chat"
 N8N_HEALTH  = f"{N8N_HOST}/healthz"
 
+with st.expander("🔍 Debug: Service URLs (click to expand)"):
+    st.code(f"OLLAMA_HOST = {OLLAMA_HOST}\nN8N_HOST    = {N8N_HOST}\nOLLAMA_API  = {OLLAMA_API}\nN8N_HEALTH  = {N8N_HEALTH}")
+
 with col1:
     if not pg_is_configured():
         pg_ok = False
