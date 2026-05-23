@@ -91,21 +91,22 @@ with col1:
         except Exception as e:
             pg_ok=False; pg_msg=str(e)[:60]
 
+    _hdrs = {"ngrok-skip-browser-warning": "true", "User-Agent": "StreamlitHealthCheck/1.0"}
     try:
-        r = requests.get(OLLAMA_API, timeout=3)
+        r = requests.get(OLLAMA_API, timeout=5, headers=_hdrs)
         ol_ok = r.status_code==200
         models = [m["name"] for m in r.json().get("models",[])] if ol_ok else []
-        ol_msg = f"{len(models)} model(s) loaded" if ol_ok else "Not reachable"
-    except:
+        ol_msg = f"{len(models)} model(s) loaded" if ol_ok else f"HTTP {r.status_code}"
+    except Exception as e:
         ol_ok=False; ol_msg="Not reachable"; models=[]
 
     try:
-        r2 = requests.get(N8N_HEALTH, timeout=5)
+        r2 = requests.get(N8N_HEALTH, timeout=5, headers=_hdrs)
         n8_ok = r2.status_code in (200, 401, 302)
-        n8_msg = "Running" if n8_ok else "Not reachable"
+        n8_msg = "Running" if n8_ok else f"HTTP {r2.status_code}"
     except:
         try:
-            r2b = requests.get(N8N_HOST, timeout=5)
+            r2b = requests.get(N8N_HOST, timeout=5, headers=_hdrs)
             n8_ok = r2b.status_code in (200, 401, 302)
             n8_msg = "Running" if n8_ok else "Not reachable"
         except:
