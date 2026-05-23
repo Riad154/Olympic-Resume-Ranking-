@@ -1,0 +1,30 @@
+version: "3"
+
+agent:
+  authtoken: YOUR_NGROK_AUTH_TOKEN_HERE
+
+tunnels:
+  ollama:
+    proto: http
+    addr: 11434
+    schemes:
+      - https
+    request_header:
+      add:
+        - "ngrok-skip-browser-warning: true"
+    response_header:
+      add:
+        - "Access-Control-Allow-Origin: *"
+        - "Access-Control-Allow-Headers: *"
+
+  n8n:
+    proto: http
+    addr: 5678
+    schemes:
+      - https
+    request_header:
+      add:
+        - "ngrok-skip-browser-warning: true"
+    response_header:
+      add:
+        - "Access-Control-Allow-Origin: *"
