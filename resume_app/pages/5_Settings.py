@@ -64,9 +64,10 @@ col1, col2 = st.columns(2, gap="large")
 # ── Configurable service endpoints (st.secrets takes priority over env vars) ──
 def _get_secret(key, default):
     try:
-        val = st.secrets.get(key, "")
-        if val and str(val).strip():
-            return str(val).strip()
+        if key in st.secrets:
+            val = st.secrets[key]
+            if val and str(val).strip():
+                return str(val).strip()
     except Exception:
         pass
     return (os.environ.get(key, "") or "").strip() or default
@@ -96,10 +97,16 @@ with col1:
         ol_ok=False; ol_msg="Not reachable"; models=[]
 
     try:
-        r2 = requests.get(N8N_HEALTH, timeout=3)
-        n8_ok = r2.status_code==200; n8_msg="Running"
+        r2 = requests.get(N8N_HEALTH, timeout=5)
+        n8_ok = r2.status_code in (200, 401, 302)
+        n8_msg = "Running" if n8_ok else "Not reachable"
     except:
-        n8_ok=False; n8_msg="Not reachable"
+        try:
+            r2b = requests.get(N8N_HOST, timeout=5)
+            n8_ok = r2b.status_code in (200, 401, 302)
+            n8_msg = "Running" if n8_ok else "Not reachable"
+        except:
+            n8_ok=False; n8_msg="Not reachable"
 
     for label, ok, msg in [
         ("PostgreSQL", pg_ok, pg_msg),
