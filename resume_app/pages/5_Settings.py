@@ -71,14 +71,21 @@ def _get_secret(key, default):
             if val and str(val).strip():
                 return str(val).strip()
         # Try inside [services] section
-        if "services" in secrets and key in secrets["services"]:
-            val = secrets["services"][key]
-            if val and str(val).strip():
-                return str(val).strip()
+        for section in ("services", "ollama", "n8n", "app"):
+            try:
+                if section in secrets and key in secrets[section]:
+                    val = secrets[section][key]
+                    if val and str(val).strip():
+                        return str(val).strip()
+            except Exception:
+                pass
         # Try as dict (some Streamlit versions)
-        d = dict(secrets)
-        if key in d and d[key] and str(d[key]).strip():
-            return str(d[key]).strip()
+        try:
+            d = dict(secrets)
+            if key in d and d[key] and str(d[key]).strip():
+                return str(d[key]).strip()
+        except Exception:
+            pass
     except Exception:
         pass
     return (os.environ.get(key, "") or "").strip() or default
