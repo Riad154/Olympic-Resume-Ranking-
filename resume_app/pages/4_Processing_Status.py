@@ -91,17 +91,18 @@ if ON_CLOUD:
         from db import get_conn
         conn = get_conn()
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM candidate")
+            cur.execute("SELECT COUNT(*) FROM candidates")
             total_cands = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM job")
+            cur.execute("SELECT COUNT(*) FROM jobs")
             total_jobs = cur.fetchone()[0]
             cur.execute(
-                "SELECT COUNT(*) FROM candidate WHERE ollama_summary IS NOT NULL AND ollama_summary != ''"
+                "SELECT COUNT(*) FROM candidates WHERE overall_score IS NOT NULL"
             )
             ranked_cands = cur.fetchone()[0]
-        st.metric("Total Candidates", total_cands)
-        st.metric("Total Jobs", total_jobs)
-        st.metric("Ranked (with LLM summary)", ranked_cands)
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Candidates", total_cands)
+        col2.metric("Total Jobs", total_jobs)
+        col3.metric("Ranked (scored)", ranked_cands)
     except Exception as e:
         st.error(f"Database error: {e}")
 
