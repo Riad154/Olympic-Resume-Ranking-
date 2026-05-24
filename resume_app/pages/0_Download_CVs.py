@@ -835,12 +835,21 @@ with upload_tab1:
         with btn_col3:
             if st.button("⚡ Start Ranking Job", type="primary", key="btn_cv_rank", use_container_width=True):
                 if _is_streamlit_cloud():
-                    st.error(
-                        "❌ AI ranking is not available on Streamlit Cloud.\n\n"
-                        "The ranker requires a local Ollama LLM server. "
-                        "Please run ranking on your local Windows workstation."
-                    )
-                    st.stop()
+                    _ollama_url = ""
+                    try:
+                        if "services" in st.secrets and "OLLAMA_HOST" in st.secrets["services"]:
+                            _ollama_url = str(st.secrets["services"]["OLLAMA_HOST"]).strip()
+                        elif "OLLAMA_HOST" in st.secrets:
+                            _ollama_url = str(st.secrets["OLLAMA_HOST"]).strip()
+                    except Exception:
+                        pass
+                    if not _ollama_url or _ollama_url.startswith("http://localhost"):
+                        st.error(
+                            "❌ AI ranking is not available on Streamlit Cloud.\n\n"
+                            "Configure a remote OLLAMA_HOST in Streamlit secrets "
+                            "(Settings → Secrets → [services] section)."
+                        )
+                        st.stop()
                 # First ensure files are processed
                 if "last_upload_job" not in st.session_state or st.session_state["last_upload_job"] != cv_job:
                     # Auto-process files first

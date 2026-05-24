@@ -1100,18 +1100,43 @@ def render_detail():
                 st.warning("⚠️ This candidate may have been scored incorrectly (all dimensions are identical). Consider re-ranking.")
             if st.button("🔄  Re-rank This Candidate", type="secondary", key=f"rerank_{apply_id}", use_container_width=True):
                 if _is_streamlit_cloud():
-                    st.error(
-                        "❌ Re-ranking requires a local Ollama LLM server and is not available on Streamlit Cloud."
-                    )
-                    st.stop()
+                    _ollama_url = ""
+                    try:
+                        if "services" in st.secrets and "OLLAMA_HOST" in st.secrets["services"]:
+                            _ollama_url = str(st.secrets["services"]["OLLAMA_HOST"]).strip()
+                        elif "OLLAMA_HOST" in st.secrets:
+                            _ollama_url = str(st.secrets["OLLAMA_HOST"]).strip()
+                    except Exception:
+                        pass
+                    if not _ollama_url or _ollama_url.startswith("http://localhost"):
+                        st.error(
+                            "❌ Re-ranking requires a remote Ollama server. "
+                            "Configure OLLAMA_HOST in Streamlit secrets."
+                        )
+                        st.stop()
                 try:
                     import subprocess as _sp
                     from pathlib import Path as _Path
                     from db import RANKER_PATH, VENV_PYTHON, RESUMES_BASE
+                    _env = os.environ.copy()
+                    try:
+                        if "services" in st.secrets:
+                            svc = st.secrets["services"]
+                            if "OLLAMA_HOST" in svc: _env["OLLAMA_HOST"] = str(svc["OLLAMA_HOST"]).strip()
+                            if "OLLAMA_MODEL" in svc: _env["OLLAMA_MODEL"] = str(svc["OLLAMA_MODEL"]).strip()
+                        if "postgresql" in st.secrets:
+                            pg = st.secrets["postgresql"]
+                            _env.setdefault("PG_HOST", str(pg.get("host", "")).strip())
+                            _env.setdefault("PG_PORT", str(pg.get("port", "5432")).strip())
+                            _env.setdefault("PG_DBNAME", str(pg.get("dbname", "")).strip())
+                            _env.setdefault("PG_USER", str(pg.get("user", "")).strip())
+                            _env.setdefault("PG_PASSWORD", str(pg.get("password", "")).strip())
+                    except Exception:
+                        pass
                     cmd = [VENV_PYTHON, RANKER_PATH, "--job", job_label, "--rerank-id", apply_id]
                     with st.spinner(f"Re-ranking {name}..."):
                         result = _sp.run(cmd, capture_output=True, text=True, timeout=180,
-                                         cwd=str(_Path(RESUMES_BASE).parent))
+                                         cwd=str(_Path(RESUMES_BASE).parent), env=_env)
                     if result.returncode == 0:
                         st.success(f"✅ Re-ranked {name} successfully. Refreshing...")
                         st.rerun()

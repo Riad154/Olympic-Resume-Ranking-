@@ -24,6 +24,36 @@ _LOG_DIR      = _PROJECT_ROOT / "_dl_logs"
 _LOG_DIR.mkdir(exist_ok=True)
 
 
+def _get_ranker_env():
+    """Build environment variables for the ranker subprocess from st.secrets."""
+    env = os.environ.copy()
+    try:
+        secrets = st.secrets
+        # Services section
+        if "services" in secrets:
+            svc = secrets["services"]
+            if "OLLAMA_HOST" in svc and svc["OLLAMA_HOST"]:
+                env["OLLAMA_HOST"] = str(svc["OLLAMA_HOST"]).strip()
+            if "OLLAMA_MODEL" in svc and svc["OLLAMA_MODEL"]:
+                env["OLLAMA_MODEL"] = str(svc["OLLAMA_MODEL"]).strip()
+        # Top-level keys fallback
+        if "OLLAMA_HOST" in secrets and secrets["OLLAMA_HOST"]:
+            env.setdefault("OLLAMA_HOST", str(secrets["OLLAMA_HOST"]).strip())
+        if "OLLAMA_MODEL" in secrets and secrets["OLLAMA_MODEL"]:
+            env.setdefault("OLLAMA_MODEL", str(secrets["OLLAMA_MODEL"]).strip())
+        # PostgreSQL
+        if "postgresql" in secrets:
+            pg = secrets["postgresql"]
+            env.setdefault("PG_HOST", str(pg.get("host", "")).strip())
+            env.setdefault("PG_PORT", str(pg.get("port", "5432")).strip())
+            env.setdefault("PG_DBNAME", str(pg.get("dbname", "")).strip())
+            env.setdefault("PG_USER", str(pg.get("user", "")).strip())
+            env.setdefault("PG_PASSWORD", str(pg.get("password", "")).strip())
+    except Exception:
+        pass
+    return env
+
+
 def _spawn_ranker(label: str, jd_file: str, department: str):
     """Launch ranker.py as a background subprocess; return (proc, log_path)."""
     cmd = [VENV_PYTHON, RANKER_PATH, "--job", label]
@@ -35,10 +65,12 @@ def _spawn_ranker(label: str, jd_file: str, department: str):
     log_path = _LOG_DIR / f"rank_{label}_{ts}.log"
     log_fp   = open(log_path, "w", encoding="utf-8")
     flags    = subprocess.CREATE_NEW_CONSOLE if os.name == "nt" else 0
+    env      = _get_ranker_env()
     proc     = subprocess.Popen(
         cmd, cwd=str(_PROJECT_ROOT),
         stdout=log_fp, stderr=subprocess.STDOUT,
         creationflags=flags,
+        env=env,
     )
     return proc, str(log_path)
 
@@ -511,12 +543,22 @@ if submit_clicked:
         # Launch the ranker in the background -- no terminal needed.
         ranker_started = False
         if _is_streamlit_cloud():
-            st.error(
-                "❌ AI ranking is not available on Streamlit Cloud.\n\n"
-                "The ranker requires a local Ollama LLM server. "
-                "Please run ranking on your local Windows workstation."
-            )
-            st.stop()
+            # Check if remote Ollama is configured
+            _ollama_url = ""
+            try:
+                if "services" in st.secrets and "OLLAMA_HOST" in st.secrets["services"]:
+                    _ollama_url = str(st.secrets["services"]["OLLAMA_HOST"]).strip()
+                elif "OLLAMA_HOST" in st.secrets:
+                    _ollama_url = str(st.secrets["OLLAMA_HOST"]).strip()
+            except Exception:
+                pass
+            if not _ollama_url or _ollama_url.startswith("http://localhost"):
+                st.error(
+                    "❌ AI ranking is not available on Streamlit Cloud.\n\n"
+                    "Configure a remote OLLAMA_HOST in Streamlit secrets "
+                    "(Settings → Secrets → [services] section)."
+                )
+                st.stop()
         proc = None
         log_path = None
         try:
