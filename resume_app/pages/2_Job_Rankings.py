@@ -6,6 +6,7 @@ Olympic Industries PLC — HR Intelligence Platform
 import os
 import io
 import base64
+import requests
 import pandas as pd
 import streamlit as st
 from pathlib import Path
@@ -506,6 +507,24 @@ def _dept_for_label(job_label: str) -> str | None:
         pass
     return None
 
+def _fetch_pdf_from_vm(pdf_path: str, job_label: str) -> bytes | None:
+    """Fetch PDF bytes from the remote VM via Tailscale URL when on Streamlit Cloud."""
+    try:
+        services = st.secrets.get("services", {})
+        vm_url = services.get("OLLAMA_HOST", "")
+        if not vm_url:
+            return None
+        filename = os.path.basename(pdf_path)
+        if not filename:
+            return None
+        remote_url = f"{vm_url.rstrip('/')}/resumes/{job_label}/uploaded_cvs/{filename}"
+        resp = requests.get(remote_url, timeout=15)
+        if resp.status_code == 200:
+            return resp.content
+    except Exception:
+        pass
+    return None
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DETAIL MODE — Ranked candidates for a single job
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -770,6 +789,10 @@ def render_detail():
         if pdf_exists:
             with open(pdf_path, "rb") as f:
                 pdf_bytes = f.read()
+        elif pdf_path and _is_streamlit_cloud():
+            # Fallback: fetch from remote VM when on Streamlit Cloud
+            pdf_bytes = _fetch_pdf_from_vm(pdf_path, job_label)
+            pdf_exists = bool(pdf_bytes)
         safe_name = str(name).replace(" ", "_").replace("/", "_")
         
         st.markdown(
