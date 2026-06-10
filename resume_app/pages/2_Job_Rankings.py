@@ -1288,13 +1288,15 @@ def render_detail():
                         elif len(pdf_bytes) > 10 * 1024 * 1024:  # 10MB limit
                             st.warning("📄 PDF is large (>10MB). Please download to view locally.")
                         else:
-                            # On Streamlit Cloud: use direct VM URL (avoids CSP issues with data URIs)
-                            # Locally: use base64 embedding
+                            # On Streamlit Cloud: open in new tab (iframes blocked by CSP)
+                            # Locally: use base64 embedding in iframe
                             if pdf_url:
-                                st.markdown(
-                                    f'<iframe src="{pdf_url}" '
-                                    f'width="100%" height="820px" style="border:1px solid {card_bdr};border-radius:8px;margin-top:0.5rem;"></iframe>',
-                                    unsafe_allow_html=True,
+                                st.info("📄 PDF loaded from remote server")
+                                st.link_button(
+                                    "🔍 Open PDF in New Tab",
+                                    url=pdf_url,
+                                    type="primary",
+                                    use_container_width=True,
                                 )
                             else:
                                 b64 = base64.b64encode(pdf_bytes).decode("utf-8")
