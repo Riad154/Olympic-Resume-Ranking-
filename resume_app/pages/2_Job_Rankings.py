@@ -507,7 +507,7 @@ def _dept_for_label(job_label: str) -> str | None:
         pass
     return None
 
-def _fetch_pdf_from_vm(pdf_path: str, job_label: str) -> bytes | None:
+def _fetch_pdf_from_vm(pdf_path: str, job_label: str, apply_id: str = "") -> bytes | None:
     """Fetch PDF bytes from the remote VM via Tailscale URL when on Streamlit Cloud."""
     try:
         # Try multiple secret key paths
@@ -519,16 +519,36 @@ def _fetch_pdf_from_vm(pdf_path: str, job_label: str) -> bytes | None:
         if not vm_url:
             st.info("DEBUG: VM URL not found in secrets")
             return None
-        filename = os.path.basename(pdf_path)
+
+        # ── Fix: normalize Windows backslashes so basename works on Linux ──
+        normalized_path = pdf_path.replace("\\", "/")
+        filename = os.path.basename(normalized_path)
         if not filename:
             st.info("DEBUG: No filename in pdf_path")
             return None
-        remote_url = f"{vm_url.rstrip('/')}/resumes/{job_label}/uploaded_cvs/{filename}"
-        st.info(f"DEBUG: Fetching {remote_url}")
-        resp = requests.get(remote_url, timeout=15)
-        st.info(f"DEBUG: HTTP {resp.status_code}, len={len(resp.content)}")
-        if resp.status_code == 200:
-            return resp.content
+
+        # Build a list of candidate folder names to try
+        folders_to_try = [job_label]
+
+        # Try to extract numeric job_id from apply_id (e.g. "1344660_Arif_...")
+        if apply_id:
+            parts = apply_id.split("_")
+            if parts and parts[0].isdigit():
+                folders_to_try.append(parts[0])
+
+        # Also try extracting job_id from filename prefix (e.g. "1344660_Arif_...pdf")
+        fname_parts = filename.split("_")
+        if fname_parts and fname_parts[0].isdigit():
+            if fname_parts[0] not in folders_to_try:
+                folders_to_try.append(fname_parts[0])
+
+        for folder in folders_to_try:
+            remote_url = f"{vm_url.rstrip('/')}/resumes/{folder}/uploaded_cvs/{filename}"
+            st.info(f"DEBUG: Trying {remote_url}")
+            resp = requests.get(remote_url, timeout=15)
+            st.info(f"DEBUG: HTTP {resp.status_code}, len={len(resp.content)}")
+            if resp.status_code == 200:
+                return resp.content
     except Exception as e:
         st.info(f"DEBUG: Exception {type(e).__name__}: {e}")
     return None
@@ -799,12 +819,13 @@ def render_detail():
                 pdf_bytes = f.read()
         elif pdf_path and _is_streamlit_cloud():
             # Fallback: fetch from remote VM when on Streamlit Cloud
-            pdf_bytes = _fetch_pdf_from_vm(pdf_path, job_label)
+            pdf_bytes = _fetch_pdf_from_vm(pdf_path, job_label, apply_id)
             pdf_exists = bool(pdf_bytes)
         
         # ── TEMP DEBUG ──
         with st.expander("🔧 Debug (PDF fetch)", expanded=False):
             st.write(f"pdf_path: `{pdf_path}`")
+            st.write(f"apply_id: `{apply_id}`")
             st.write(f"is_cloud: `{_is_streamlit_cloud()}`")
             st.write(f"pdf_exists: `{pdf_exists}`")
             st.write(f"pdf_bytes length: `{len(pdf_bytes) if pdf_bytes else 0}`")
