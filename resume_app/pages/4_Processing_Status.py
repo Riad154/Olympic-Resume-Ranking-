@@ -188,13 +188,20 @@ st.markdown('<hr class="divider">', unsafe_allow_html=True)
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def list_job_folders() -> list[str]:
+    """Return all job folders that have candidate data (profiles_txt or uploaded_cvs).
+    Previously only showed folders with _ranker_progress.jsonl, which meant
+    newly-created jobs didn't appear until ranker started."""
     if not RESUMES_BASE.exists():
         return []
-    return sorted(
-        [p.name for p in RESUMES_BASE.iterdir()
-         if p.is_dir() and (p / "_ranker_progress.jsonl").exists()],
-        reverse=True,
-    )
+    folders = []
+    for p in RESUMES_BASE.iterdir():
+        if not p.is_dir():
+            continue
+        has_profiles = (p / "profiles_txt").is_dir()
+        has_cvs = (p / "uploaded_cvs").is_dir()
+        if has_profiles or has_cvs:
+            folders.append(p.name)
+    return sorted(folders, reverse=True)
 
 
 def read_progress(job_folder: str) -> list[dict]:
@@ -298,12 +305,16 @@ def ollama_ps() -> list[dict] | None:
 
 jobs = list_job_folders()
 if not jobs:
-    st.warning(f"No progress logs found under `{RESUMES_BASE}`.")
+    st.warning(f"No job folders found under `{RESUMES_BASE}`. Download or upload CVs first.")
     st.stop()
 
 with st.sidebar:
     st.header("Job")
     selected = st.selectbox("Progress log", jobs, index=0)
+    # Show a note if no progress file yet
+    _progress_path = RESUMES_BASE / selected / "_ranker_progress.jsonl"
+    if not _progress_path.exists():
+        st.info("⏳ Ranking not started yet. Use the **New Job Posting** page to start ranking.")
     # NAV-02: peek at events first so we can disable auto-refresh once the
     # run is complete. Otherwise the page keeps spinning on a finished run.
     _peek_events = read_progress(selected)
