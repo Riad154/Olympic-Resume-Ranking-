@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          MD. Ismail Hossain
+ApplyID:       342012397
+CrpApplID:     16030702021ID802053
+Email:         smismail2010@gmail.com
+Mobile:        01914061868,01321223177
+Degree:        Bachelor of Business Studies (BBS)
+University:    Govt. Tolaram College
+Experience:    Artistic Design Ltd ( Hameem Group)##Asst. Manager-Admin. (4+ years)*|*Sinha Denim Wear Ltd ( Opex Group)##Officer- HR & Admin (7+ years)
+Location:      Savar, Dhaka
+CurrentSalary: 55,780
+ExpSalary:     55,000
+MatchScore:    82%
+AppliedDate:   12 Feb 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-06-10T09:54:24.329607
+============================================
+

@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          MOHAMMAD RASHEDUL ISLAM
+ApplyID:       342805592
+CrpApplID:     12598611997ID629584
+Email:         fardeenuk@gmail.com
+Mobile:        01718312657,01794144697
+Degree:        Master`s of Social-Science (MSS)
+University:    Govt. Dhaka College, Dhaka.
+Experience:    Bengal Group of Industries##Manager (6+ years)*|*Meghna Group of Industries Ltd.##Deputy Manager (4+ years)
+Location:      Gulshan, Dhaka
+CurrentSalary: 115,000
+ExpSalary:     45,000
+MatchScore:    82%
+AppliedDate:   19 Feb 2025
+AttachedCV:    No
+ScrapedAt:     2026-06-10T09:54:23.077573
+============================================
+

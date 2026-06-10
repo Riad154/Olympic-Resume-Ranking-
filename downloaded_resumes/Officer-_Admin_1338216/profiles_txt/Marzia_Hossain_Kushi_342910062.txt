@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Marzia Hossain Kushi
+ApplyID:       342910062
+CrpApplID:     28563332031ID1428796
+Email:         marziahossainkushi@gmail.com
+Mobile:        01700710733,01681664781
+Degree:        Master of Arts (MA)
+University:    National University
+Experience:    Checkpoint System BD LTD##Senior Admin Officer (2+ years)*|*Checkpoint System BD LTD##Admin Officer (2+ years)
+Location:      Fatullah, Narayanganj
+CurrentSalary: 33,000
+ExpSalary:     35,000
+MatchScore:    82%
+AppliedDate:   20 Feb 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-06-10T09:54:26.157561
+============================================
+

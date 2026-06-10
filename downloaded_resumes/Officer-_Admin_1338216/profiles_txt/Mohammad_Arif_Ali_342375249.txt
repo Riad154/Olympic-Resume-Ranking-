@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Mohammad Arif Ali
+ApplyID:       342375249
+CrpApplID:     8987882000ID449672
+Email:         arifskdr@gmail.com
+Mobile:        01747377971,01904701135
+Degree:        Masters in commerce
+University:    National University
+Experience:    PEOPLE`S ORIENTED PROGRAM IMPLEMENTATION (POPI)##Accounts Officer (1+ year)*|*Sheva Nari O shishu Kallyan Kendra##Finance and Administrative Officer (3+ years)
+Location:      Sreepur, Gazipur
+CurrentSalary: 35,000
+ExpSalary:     40,000
+MatchScore:    87%
+AppliedDate:   15 Feb 2025
+AttachedCV:    No
+ScrapedAt:     2026-06-10T09:54:14.841205
+============================================
+

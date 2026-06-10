@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Md. Azim Hosen
+ApplyID:       342019960
+CrpApplID:     42850802003ID2143926
+Email:         azimhosen93@gmail.com
+Mobile:        01615215812,01314665001
+Degree:        Bachelor of Business Studies (BBS)
+University:    Govt.Titumir College in National University
+Experience:    BOND Clothing House##Sr. Manager (1+ year)*|*Concrete Construction##HR & Admin Manager (2+ months)
+Location:      Dakshin Khan, Dhaka
+CurrentSalary: 40,000
+ExpSalary:     35,000
+MatchScore:    82%
+AppliedDate:   12 Feb 2025
+AttachedCV:    No
+ScrapedAt:     2026-06-10T09:54:21.316075
+============================================
+

@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Alim Bhuiyan
+ApplyID:       341972593
+CrpApplID:     36387712011ID1819907
+Email:         info.alimbhuiyan@gmail.com
+Mobile:        01815347127,01766985797
+Degree:        Masters of Business Administration (MBA)
+University:    Dhaka College
+Experience:    Bangladesh Election Commission##Technical Support (11+ years)
+Location:      Badda, Dhaka
+CurrentSalary: 25,500
+ExpSalary:     30,000
+MatchScore:    100%
+AppliedDate:   11 Feb 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-06-10T09:54:10.868237
+============================================
+

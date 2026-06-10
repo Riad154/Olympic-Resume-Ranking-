@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Iftahaz Anwar Chowdury
+ApplyID:       342034486
+CrpApplID:     29908682025ID1496688
+Email:         iftahazanwarchowdury@gmail.com
+Mobile:        01626927008,
+Degree:        Master of Arts (MA)
+University:    Shahjalal University of Science & Technology
+Experience:    TOA CORPORATION##Administration Officer (5+ years)*|*Universal Group##Assistant Officer (7+ months)
+Location:      Chittagong Sadar Chawkbazar, Chattogram
+CurrentSalary: 45,000
+ExpSalary:     45,000
+MatchScore:    82%
+AppliedDate:   12 Feb 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-06-10T09:54:26.788846
+============================================
+
