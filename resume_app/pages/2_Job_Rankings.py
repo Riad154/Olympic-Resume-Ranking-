@@ -507,8 +507,9 @@ def _dept_for_label(job_label: str) -> str | None:
         pass
     return None
 
-def _fetch_pdf_from_vm(pdf_path: str, job_label: str, apply_id: str = "") -> bytes | None:
-    """Fetch PDF bytes from the remote VM via Tailscale URL when on Streamlit Cloud."""
+def _fetch_pdf_from_vm(pdf_path: str, job_label: str, apply_id: str = "") -> tuple[bytes | None, str | None]:
+    """Fetch PDF bytes from the remote VM via Tailscale URL when on Streamlit Cloud.
+    Returns (pdf_bytes, working_url) tuple."""
     try:
         # Try multiple secret key paths
         vm_url = ""
@@ -518,14 +519,14 @@ def _fetch_pdf_from_vm(pdf_path: str, job_label: str, apply_id: str = "") -> byt
             vm_url = st.secrets["OLLAMA_HOST"]
         if not vm_url:
             st.info("DEBUG: VM URL not found in secrets")
-            return None
+            return None, None
 
         # ── Fix: normalize Windows backslashes so basename works on Linux ──
         normalized_path = pdf_path.replace("\\", "/")
         filename = os.path.basename(normalized_path)
         if not filename:
             st.info("DEBUG: No filename in pdf_path")
-            return None
+            return None, None
 
         # Build a list of candidate folder names to try
         folders_to_try = [job_label]
@@ -559,10 +560,10 @@ def _fetch_pdf_from_vm(pdf_path: str, job_label: str, apply_id: str = "") -> byt
             resp = requests.get(remote_url, timeout=15)
             st.info(f"DEBUG: HTTP {resp.status_code}, len={len(resp.content)}")
             if resp.status_code == 200:
-                return resp.content
+                return resp.content, remote_url
     except Exception as e:
         st.info(f"DEBUG: Exception {type(e).__name__}: {e}")
-    return None
+    return None, None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DETAIL MODE — Ranked candidates for a single job
@@ -825,12 +826,13 @@ def render_detail():
         pdf_path = str(sel.get("pdf_path") or "")
         pdf_exists = pdf_path and os.path.exists(pdf_path)
         pdf_bytes = None
+        pdf_url = None
         if pdf_exists:
             with open(pdf_path, "rb") as f:
                 pdf_bytes = f.read()
         elif pdf_path and _is_streamlit_cloud():
             # Fallback: fetch from remote VM when on Streamlit Cloud
-            pdf_bytes = _fetch_pdf_from_vm(pdf_path, job_label, apply_id)
+            pdf_bytes, pdf_url = _fetch_pdf_from_vm(pdf_path, job_label, apply_id)
             pdf_exists = bool(pdf_bytes)
         
         # ── TEMP DEBUG ──
@@ -840,6 +842,7 @@ def render_detail():
             st.write(f"is_cloud: `{_is_streamlit_cloud()}`")
             st.write(f"pdf_exists: `{pdf_exists}`")
             st.write(f"pdf_bytes length: `{len(pdf_bytes) if pdf_bytes else 0}`")
+            st.write(f"pdf_url: `{pdf_url}`")
         # ── END DEBUG ──
         
         safe_name = str(name).replace(" ", "_").replace("/", "_")
@@ -1285,12 +1288,21 @@ def render_detail():
                         elif len(pdf_bytes) > 10 * 1024 * 1024:  # 10MB limit
                             st.warning("📄 PDF is large (>10MB). Please download to view locally.")
                         else:
-                            b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-                            st.markdown(
-                                f'<iframe src="data:application/pdf;base64,{b64}" '
-                                f'width="100%" height="820px" style="border:1px solid {card_bdr};border-radius:8px;margin-top:0.5rem;"></iframe>',
-                                unsafe_allow_html=True,
-                            )
+                            # On Streamlit Cloud: use direct VM URL (avoids CSP issues with data URIs)
+                            # Locally: use base64 embedding
+                            if pdf_url:
+                                st.markdown(
+                                    f'<iframe src="{pdf_url}" '
+                                    f'width="100%" height="820px" style="border:1px solid {card_bdr};border-radius:8px;margin-top:0.5rem;"></iframe>',
+                                    unsafe_allow_html=True,
+                                )
+                            else:
+                                b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+                                st.markdown(
+                                    f'<iframe src="data:application/pdf;base64,{b64}" '
+                                    f'width="100%" height="820px" style="border:1px solid {card_bdr};border-radius:8px;margin-top:0.5rem;"></iframe>',
+                                    unsafe_allow_html=True,
+                                )
                 except Exception as e:
                     st.error(f"❌ Failed to load PDF: {str(e)}")
                     st.info("💡 Try downloading the PDF instead using the button above.")
