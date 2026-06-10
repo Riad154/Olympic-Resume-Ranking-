@@ -1230,26 +1230,32 @@ def render_detail():
         if not pdf_exists:
             st.error("📄 No resume uploaded for this candidate.")
         else:
-            view_key = f"view_pdf_{apply_id}"
-            if view_key not in st.session_state:
-                st.session_state[view_key] = False
-            
-            # Read state BEFORE the button so label reflects current state correctly
-            is_open = st.session_state[view_key]
-            
-            col_view, col_download = st.columns([1, 1])
-            with col_view:
-                if st.button(
-                    "✕  Close PDF Viewer" if is_open else "🔍  View PDF in Browser",
-                    key=f"btn_pdf_{apply_id}",
-                    type="secondary",
-                    use_container_width=True,
-                ):
-                    st.session_state[view_key] = not is_open
-                    st.rerun()
+            col_link, col_download = st.columns([1, 1])
+            with col_link:
+                if pdf_url:
+                    # Streamlit Cloud: open in new tab (iframes blocked by CSP)
+                    st.link_button(
+                        "🔍 Open in New Tab",
+                        url=pdf_url,
+                        type="primary",
+                        use_container_width=True,
+                    )
+                else:
+                    # Local: embedded iframe
+                    try:
+                        if pdf_bytes and pdf_bytes[:4] == b"%PDF":
+                            b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+                            st.markdown(
+                                f'<iframe src="data:application/pdf;base64,{b64}" '
+                                f'width="100%" height="820px" style="border:1px solid {card_bdr};border-radius:8px;margin-top:0.5rem;"></iframe>',
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            st.error("⚠️ PDF data not available or invalid.")
+                    except Exception as e:
+                        st.error(f"❌ Failed to load PDF: {str(e)}")
             
             with col_download:
-                # Use pdf_bytes from top-level
                 st.download_button(
                     "⬇ Download PDF",
                     pdf_bytes,
@@ -1258,50 +1264,6 @@ def render_detail():
                     key=f"dl_pdf_{apply_id}",
                     use_container_width=True,
                 )
-                
-            if st.session_state[view_key]:
-                try:
-                    # Use pdf_bytes from top-level (already validated when read)
-                    if not pdf_bytes:
-                        st.error("⚠️ PDF data not available.")
-                    else:
-                        # Validate PDF magic bytes
-                        is_valid_pdf = pdf_bytes[:4] == b"%PDF"
-                        
-                        if not is_valid_pdf:
-                            st.error("⚠️ The file exists but appears to be an invalid PDF format.")
-                        elif len(pdf_bytes) > 10 * 1024 * 1024:  # 10MB limit
-                            st.warning("📄 PDF is large (>10MB). Please download to view locally.")
-                        else:
-                            if pdf_url:
-                                # Streamlit Cloud: open in new tab (iframes blocked by CSP)
-                                st.info("📄 PDF loaded from remote server")
-                                col_link, col_local = st.columns([1, 1])
-                                with col_link:
-                                    st.link_button(
-                                        "🔍 Open in New Tab",
-                                        url=pdf_url,
-                                        type="primary",
-                                        use_container_width=True,
-                                    )
-                                with col_local:
-                                    st.link_button(
-                                        "⬇ Download PDF",
-                                        url=pdf_url,
-                                        type="secondary",
-                                        use_container_width=True,
-                                    )
-                            else:
-                                # Local: use base64 embedding in iframe
-                                b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-                                st.markdown(
-                                    f'<iframe src="data:application/pdf;base64,{b64}" '
-                                    f'width="100%" height="820px" style="border:1px solid {card_bdr};border-radius:8px;margin-top:0.5rem;"></iframe>',
-                                    unsafe_allow_html=True,
-                                )
-                except Exception as e:
-                    st.error(f"❌ Failed to load PDF: {str(e)}")
-                    st.info("💡 Try downloading the PDF instead using the button above.")
 
     # ── Errors ─────────────────────────────────────────────────────────────────────
     if not errors_df.empty:
