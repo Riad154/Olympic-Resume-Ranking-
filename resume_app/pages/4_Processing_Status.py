@@ -99,10 +99,9 @@ if ON_CLOUD:
                 "SELECT COUNT(*) FROM candidates WHERE overall_score IS NOT NULL"
             )
             ranked_cands = cur.fetchone()[0]
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Candidates", total_cands)
-        col2.metric("Total Jobs", total_jobs)
-        col3.metric("Ranked (scored)", ranked_cands)
+        st.metric("Total Candidates", total_cands)
+        st.metric("Total Jobs", total_jobs)
+        st.metric("Ranked (with LLM summary)", ranked_cands)
     except Exception as e:
         st.error(f"Database error: {e}")
 
