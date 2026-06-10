@@ -32,7 +32,7 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 # ── Cloud detection ─────────────────────────────────────────────────────────────
 ON_CLOUD = _is_streamlit_cloud()
 
-# ── Cloud: show GitHub Actions status instead of local logs ───────────────────
+# ── Cloud: rich status view matching local UI design ──────────────────────────
 if ON_CLOUD:
     st.markdown(get_css(), unsafe_allow_html=True)
     render_sidebar()
@@ -44,66 +44,126 @@ if ON_CLOUD:
     )
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    st.info(
-        "On Streamlit Community Cloud, local file-based progress logs and GPU/Ollama monitoring are not available. "
-        "Ranker runs happen via **GitHub Actions** on Ubuntu runners. "
-        "Downloaded CVs are stored in your **PostgreSQL database** (not local disk).",
-        icon="☁️",
-    )
-
-    # Show latest GitHub Actions run status
-    st.markdown("### 🚀 GitHub Actions — BDJobs Scraper")
-    try:
-        sys.path.insert(0, str(BASE_DIR / "scripts"))
-        from github_actions import _get_token, _get_repo, get_latest_run_status
-        token = _get_token()
-        repo = _get_repo()
-        if token:
-            run = get_latest_run_status(repo, token)
-            if run.get("status") == "error":
-                st.error(f"Could not fetch run status: {run.get('msg', 'Unknown error')}")
-            else:
-                status = run.get("status", "unknown")
-                conclusion = run.get("conclusion", "—")
-                created = run.get("created_at", "—")
-                url = run.get("html_url", f"https://github.com/{repo}/actions")
-
-                status_icon = {
-                    "completed": "✅",
-                    "in_progress": "🔄",
-                    "queued": "⏳",
-                    "waiting": "⏳",
-                    "requested": "⏳",
-                }.get(status, "❓")
-
-                st.markdown(f"**Latest run:** {status_icon} `{status}` — conclusion: `{conclusion}`")
-                st.markdown(f"**Created:** {created}")
-                st.link_button("View on GitHub →", url, type="secondary")
-        else:
-            st.warning("No GH_TOKEN configured. Cannot fetch GitHub Actions status.")
-    except Exception as e:
-        st.error(f"Failed to fetch GitHub Actions status: {e}")
-
-    # Database candidate count
-    st.markdown("---")
-    st.markdown("### 🗄️ Database Overview")
+    # ── Fetch DB stats ─────────────────────────────────────────────────────────
+    db_stats = {
+        "total": 0, "ranked": 0, "errors": 0,
+        "jobs": 0, "recent": [], "err_rows": [],
+    }
     try:
         from db import get_conn
         conn = get_conn()
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM candidates")
-            total_cands = cur.fetchone()[0]
+            db_stats["total"] = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM jobs")
-            total_jobs = cur.fetchone()[0]
+            db_stats["jobs"] = cur.fetchone()[0]
             cur.execute(
                 "SELECT COUNT(*) FROM candidates WHERE overall_score IS NOT NULL"
             )
-            ranked_cands = cur.fetchone()[0]
-        st.metric("Total Candidates", total_cands)
-        st.metric("Total Jobs", total_jobs)
-        st.metric("Ranked (with LLM summary)", ranked_cands)
+            db_stats["ranked"] = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM candidates WHERE rank_error IS NOT NULL AND rank_error != ''"
+            )
+            db_stats["errors"] = cur.fetchone()[0]
+            cur.execute("""
+                SELECT apply_id, candidate_name, overall_score, recommendation, ranked_at, rank_error
+                FROM candidates
+                WHERE overall_score IS NOT NULL
+                ORDER BY ranked_at DESC NULLS LAST
+                LIMIT 10
+            """)
+            db_stats["recent"] = cur.fetchall()
+            cur.execute("""
+                SELECT apply_id, candidate_name, rank_error, ranked_at
+                FROM candidates
+                WHERE rank_error IS NOT NULL AND rank_error != ''
+                ORDER BY ranked_at DESC NULLS LAST
+            """)
+            db_stats["err_rows"] = cur.fetchall()
     except Exception as e:
         st.error(f"Database error: {e}")
+
+    total   = db_stats["total"]
+    ranked  = db_stats["ranked"]
+    errors  = db_stats["errors"]
+    jobs    = db_stats["jobs"]
+    recent  = db_stats["recent"]
+    err_rows = db_stats["err_rows"]
+
+    # ── GitHub Actions status (compact) ────────────────────────────────────────
+    with st.expander("🚀 GitHub Actions — BDJobs Scraper", expanded=False):
+        try:
+            sys.path.insert(0, str(BASE_DIR / "scripts"))
+            from github_actions import _get_token, _get_repo, get_latest_run_status
+            token = _get_token()
+            repo = _get_repo()
+            if token:
+                run = get_latest_run_status(repo, token)
+                if run.get("status") == "error":
+                    st.error(f"Could not fetch run status: {run.get('msg', 'Unknown error')}")
+                else:
+                    status = run.get("status", "unknown")
+                    conclusion = run.get("conclusion", "—")
+                    created = run.get("created_at", "—")
+                    url = run.get("html_url", f"https://github.com/{repo}/actions")
+                    status_icon = {
+                        "completed": "✅", "in_progress": "🔄",
+                        "queued": "⏳", "waiting": "⏳", "requested": "⏳",
+                    }.get(status, "❓")
+                    st.markdown(f"**Latest run:** {status_icon} `{status}` — conclusion: `{conclusion}`")
+                    st.markdown(f"**Created:** {created}")
+                    st.link_button("View on GitHub →", url, type="secondary")
+            else:
+                st.warning("No GH_TOKEN configured.")
+        except Exception as e:
+            st.error(f"Failed to fetch GitHub Actions status: {e}")
+
+    # ── Top metrics bar (matches local layout) ─────────────────────────────────
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Total", total)
+    c2.metric("Processed", ranked)
+    c3.metric("✅ OK", max(0, ranked - errors))
+    c4.metric("⚠ Errors", errors)
+    c5.metric("Jobs", jobs)
+    c6.metric("⚡ Speed", "—")
+
+    pct = (ranked / total) if total else 0.0
+    st.progress(min(1.0, pct), text=f"Ranked {ranked} of {total or '?'} candidates")
+
+    # ── Database activity (matches local "Last 10 processed") ──────────────────
+    st.subheader("Last 10 processed")
+    if recent:
+        rows = []
+        for r in recent:
+            apply_id, name, score, rec, ts, err = r
+            ts_str = str(ts)[-8:] if ts else "—"
+            rows.append({
+                "When": ts_str,
+                "Apply ID": apply_id or "",
+                "Name": name or "",
+                "Score": score if score is not None else "—",
+                "Verdict": rec or "",
+                "Note": "" if not err else err[:80],
+            })
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.caption("No candidates processed yet.")
+
+    # ── Errors expander (matches local) ────────────────────────────────────────
+    with st.expander(f"Errored candidates ({len(err_rows)})", expanded=False):
+        if err_rows:
+            st.dataframe(
+                [{
+                    "Apply ID": r[0] or "",
+                    "Name":     r[1] or "",
+                    "Error":    r[2] or "",
+                    "When":     str(r[3]) if r[3] else "",
+                } for r in err_rows],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.caption("No errors so far.")
 
     st.stop()
 
