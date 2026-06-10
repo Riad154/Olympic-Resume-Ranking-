@@ -518,22 +518,19 @@ def _fetch_pdf_from_vm(pdf_path: str, job_label: str, apply_id: str = "") -> tup
         if not vm_url and "OLLAMA_HOST" in st.secrets:
             vm_url = st.secrets["OLLAMA_HOST"]
         if not vm_url:
-            st.info("DEBUG: VM URL not found in secrets")
             return None, None
 
-        # ── Fix: normalize Windows backslashes so basename works on Linux ──
+        # Normalize Windows backslashes so basename works on Linux
         normalized_path = pdf_path.replace("\\", "/")
         filename = os.path.basename(normalized_path)
         if not filename:
-            st.info("DEBUG: No filename in pdf_path")
             return None, None
 
         # Build a list of candidate folder names to try
         folders_to_try = [job_label]
 
         # Extract folder name from the pdf_path itself (parent of uploaded_cvs)
-        # e.g. F:\...\downloaded_resumes\<FOLDER>\uploaded_cvs\file.pdf
-        path_parts = normalized_path.replace("\\", "/").split("/")
+        path_parts = normalized_path.split("/")
         for i, part in enumerate(path_parts):
             if part == "uploaded_cvs" and i > 0:
                 parent_folder = path_parts[i - 1]
@@ -556,13 +553,11 @@ def _fetch_pdf_from_vm(pdf_path: str, job_label: str, apply_id: str = "") -> tup
 
         for folder in folders_to_try:
             remote_url = f"{vm_url.rstrip('/')}/resumes/{folder}/uploaded_cvs/{filename}"
-            st.info(f"DEBUG: Trying {remote_url}")
             resp = requests.get(remote_url, timeout=15)
-            st.info(f"DEBUG: HTTP {resp.status_code}, len={len(resp.content)}")
             if resp.status_code == 200:
                 return resp.content, remote_url
-    except Exception as e:
-        st.info(f"DEBUG: Exception {type(e).__name__}: {e}")
+    except Exception:
+        pass
     return None, None
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -834,16 +829,6 @@ def render_detail():
             # Fallback: fetch from remote VM when on Streamlit Cloud
             pdf_bytes, pdf_url = _fetch_pdf_from_vm(pdf_path, job_label, apply_id)
             pdf_exists = bool(pdf_bytes)
-        
-        # ── TEMP DEBUG ──
-        with st.expander("🔧 Debug (PDF fetch)", expanded=False):
-            st.write(f"pdf_path: `{pdf_path}`")
-            st.write(f"apply_id: `{apply_id}`")
-            st.write(f"is_cloud: `{_is_streamlit_cloud()}`")
-            st.write(f"pdf_exists: `{pdf_exists}`")
-            st.write(f"pdf_bytes length: `{len(pdf_bytes) if pdf_bytes else 0}`")
-            st.write(f"pdf_url: `{pdf_url}`")
-        # ── END DEBUG ──
         
         safe_name = str(name).replace(" ", "_").replace("/", "_")
         
