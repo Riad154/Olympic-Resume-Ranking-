@@ -1289,7 +1289,7 @@ def render_detail():
                             st.warning("📄 PDF is large (>10MB). Please download to view locally.")
                         else:
                             if pdf_url:
-                                # Streamlit Cloud: offer new-tab + inline image rendering
+                                # Streamlit Cloud: open in new tab (iframes blocked by CSP)
                                 st.info("📄 PDF loaded from remote server")
                                 col_link, col_local = st.columns([1, 1])
                                 with col_link:
@@ -1306,30 +1306,6 @@ def render_detail():
                                         type="secondary",
                                         use_container_width=True,
                                     )
-                                # Render as images inline (avoids iframe CSP)
-                                MAX_PREVIEW_PAGES = 3
-                                PREVIEW_RESOLUTION = 100
-                                with st.spinner("Rendering PDF preview..."):
-                                    try:
-                                        import pdfplumber
-                                        pdf_file = io.BytesIO(pdf_bytes)
-                                        with pdfplumber.open(pdf_file) as pdf:
-                                            total_pages = len(pdf.pages)
-                                            pages_to_render = pdf.pages[:MAX_PREVIEW_PAGES]
-                                            for idx, page in enumerate(pages_to_render):
-                                                img = page.to_image(resolution=PREVIEW_RESOLUTION)
-                                                st.image(
-                                                    img.original,
-                                                    caption=f"Page {idx + 1} of {total_pages}",
-                                                    use_container_width=True,
-                                                )
-                                            if total_pages > MAX_PREVIEW_PAGES:
-                                                st.info(
-                                                    f"📄 Showing first {MAX_PREVIEW_PAGES} of {total_pages} pages. "
-                                                    f"Use 'Open in New Tab' to view the full PDF."
-                                                )
-                                    except Exception as render_err:
-                                        st.warning(f"Could not render inline preview: {render_err}")
                             else:
                                 # Local: use base64 embedding in iframe
                                 b64 = base64.b64encode(pdf_bytes).decode("utf-8")
