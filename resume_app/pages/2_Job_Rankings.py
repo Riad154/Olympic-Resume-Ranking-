@@ -516,17 +516,20 @@ def _fetch_pdf_from_vm(pdf_path: str, job_label: str) -> bytes | None:
             vm_url = st.secrets["services"].get("OLLAMA_HOST", "")
         if not vm_url and "OLLAMA_HOST" in st.secrets:
             vm_url = st.secrets["OLLAMA_HOST"]
+        st.info(f"DEBUG VM: vm_url found={bool(vm_url)}")
         if not vm_url:
             return None
         filename = os.path.basename(pdf_path)
         if not filename:
             return None
         remote_url = f"{vm_url.rstrip('/')}/resumes/{job_label}/uploaded_cvs/{filename}"
+        st.info(f"DEBUG VM: fetching {remote_url}")
         resp = requests.get(remote_url, timeout=15)
+        st.info(f"DEBUG VM: status={resp.status_code} len={len(resp.content)}")
         if resp.status_code == 200:
             return resp.content
-    except Exception:
-        pass
+    except Exception as e:
+        st.info(f"DEBUG VM: exception {type(e).__name__}: {e}")
     return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -797,6 +800,12 @@ def render_detail():
             # Fallback: fetch from remote VM when on Streamlit Cloud
             pdf_bytes = _fetch_pdf_from_vm(pdf_path, job_label)
             pdf_exists = bool(pdf_bytes)
+        
+        # ── TEMP DEBUG ──
+        is_cloud = _is_streamlit_cloud()
+        st.info(f"DEBUG: pdf_path='{pdf_path}' | is_cloud={is_cloud} | pdf_exists={pdf_exists} | bytes_len={len(pdf_bytes) if pdf_bytes else 0}")
+        # ── END DEBUG ──
+        
         safe_name = str(name).replace(" ", "_").replace("/", "_")
         
         st.markdown(
