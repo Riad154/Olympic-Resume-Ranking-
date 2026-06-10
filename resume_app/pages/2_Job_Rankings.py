@@ -510,8 +510,12 @@ def _dept_for_label(job_label: str) -> str | None:
 def _fetch_pdf_from_vm(pdf_path: str, job_label: str) -> bytes | None:
     """Fetch PDF bytes from the remote VM via Tailscale URL when on Streamlit Cloud."""
     try:
-        services = st.secrets.get("services", {})
-        vm_url = services.get("OLLAMA_HOST", "")
+        # Try multiple secret key paths
+        vm_url = ""
+        if "services" in st.secrets:
+            vm_url = st.secrets["services"].get("OLLAMA_HOST", "")
+        if not vm_url and "OLLAMA_HOST" in st.secrets:
+            vm_url = st.secrets["OLLAMA_HOST"]
         if not vm_url:
             return None
         filename = os.path.basename(pdf_path)
