@@ -169,9 +169,10 @@ with col_form:
         job_title = st.text_input(
             "Job Title *",
             placeholder="e.g. Sr. Executive — AI & Digital Transformation",
+            key="job_title",
         )
     with col_b:
-        department = st.selectbox("Department", [""] + DEPARTMENTS)
+        department = st.selectbox("Department", [""] + DEPARTMENTS, key="department")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -182,6 +183,7 @@ with col_form:
         placeholder="Paste the complete job description here. The AI will extract requirements automatically.",
         height=200,
         label_visibility="collapsed",
+        key="jd_text",
     )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -190,9 +192,9 @@ with col_form:
     st.markdown('<div class="section-hd">Candidate Requirements</div>', unsafe_allow_html=True)
     col_c, col_d = st.columns(2)
     with col_c:
-        min_experience = st.selectbox("Minimum Experience", EXPERIENCE_OPTIONS)
+        min_experience = st.selectbox("Minimum Experience", EXPERIENCE_OPTIONS, key="min_experience")
     with col_d:
-        education_req = st.selectbox("Education Requirement", EDUCATION_OPTIONS)
+        education_req = st.selectbox("Education Requirement", EDUCATION_OPTIONS, key="education_req")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -289,6 +291,23 @@ with col_form:
     if "w_leadership" not in st.session_state: st.session_state["w_leadership"] = 5
     if "w_culture"    not in st.session_state: st.session_state["w_culture"]    = 5
 
+    # FORM CACHE: persist user inputs across page reloads / navigation
+    _form_defaults = {
+        "job_title": "",
+        "department": "",
+        "jd_text": "",
+        "min_experience": EXPERIENCE_OPTIONS[0] if EXPERIENCE_OPTIONS else "",
+        "education_req": EDUCATION_OPTIONS[0] if EDUCATION_OPTIONS else "",
+        "custom_skills_input": "",
+        "red_flags": [],
+        "custom_flags_raw": "",
+        "interviewer_notes": "",
+        "source_folder": "",
+    }
+    for _k, _v in _form_defaults.items():
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
+
     # FEAT-03: per-department weight presets. The user can apply optimal
     # defaults for the selected department with one click, then fine-tune.
     DEPT_WEIGHT_PRESETS = {
@@ -331,6 +350,12 @@ with col_form:
             st.session_state["w_edu"]        = preset["edu"]
             st.session_state["w_leadership"] = preset["leadership"]
             st.session_state["w_culture"]    = preset["culture"]
+            # Also update slider keys so the UI visually reflects the new values
+            st.session_state["sl_skills"]     = preset["skills"]
+            st.session_state["sl_exp"]        = preset["exp"]
+            st.session_state["sl_edu"]        = preset["edu"]
+            st.session_state["sl_leadership"] = preset["leadership"]
+            st.session_state["sl_culture"]    = preset["culture"]
             st.rerun()
 
     col_w1, col_w2, col_w3 = st.columns(3)
@@ -361,10 +386,12 @@ with col_form:
         "Flag these patterns in candidates",
         RED_FLAG_PRESETS,
         label_visibility="collapsed",
+        key="red_flags",
     )
     custom_flags_raw = st.text_input(
         "Additional red flags (comma-separated)",
         placeholder="e.g. No pharmaceutical background",
+        key="custom_flags_raw",
     )
     if custom_flags_raw:
         custom_flags = [f.strip() for f in custom_flags_raw.split(",") if f.strip()]
@@ -379,6 +406,7 @@ with col_form:
         placeholder="Any specific context, priorities, or preferences for this hire...",
         height=100,
         label_visibility="collapsed",
+        key="interviewer_notes",
     )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -386,16 +414,22 @@ with col_form:
     # ── Section 7: Resume source
     st.markdown('<div class="section-hd">Resume Source</div>', unsafe_allow_html=True)
 
+    # Ensure cached source_folder is still valid; reset if folder no longer exists
+    if available_folders and st.session_state.get("source_folder") not in available_folders:
+        st.session_state["source_folder"] = available_folders[0]
+
     if available_folders:
         source_folder = st.selectbox(
             "Select downloaded resume folder",
             available_folders,
             help="These are folders found in your downloaded_resumes directory.",
+            key="source_folder",
         )
     else:
         source_folder = st.text_input(
             "Resume folder name",
             placeholder="e.g. AIDigital_Transformation-SrExecutive",
+            key="source_folder",
         )
         st.caption(f"Folder will be looked up in: {RESUMES_BASE}")
 

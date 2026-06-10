@@ -44,41 +44,71 @@ if ON_CLOUD:
     )
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    # ── Fetch DB stats ─────────────────────────────────────────────────────────
+    # ── Sidebar: job selector + refresh controls ───────────────────────────────
+    job_labels = []
+    try:
+        from db import get_conn
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT job_label FROM jobs ORDER BY updated_at DESC")
+            job_labels = [r[0] for r in cur.fetchall() if r[0]]
+    except Exception:
+        pass
+
+    if not job_labels:
+        try:
+            job_labels = list_job_folders()
+        except Exception:
+            pass
+
+    if not job_labels:
+        st.warning("No jobs found. Create a job on the New Job Posting page first.")
+        st.stop()
+
+    with st.sidebar:
+        st.header("Job")
+        selected_job = st.selectbox("Select job", job_labels, index=0)
+        auto_refresh = st.checkbox("Auto-refresh (3s)", value=True)
+        refresh_now = st.button("Refresh now")
+
+    # ── Fetch per-job DB stats ────────────────────────────────────────────────
     db_stats = {
         "total": 0, "ranked": 0, "errors": 0,
-        "jobs": 0, "recent": [], "err_rows": [],
+        "recent": [], "err_rows": [],
     }
     try:
         from db import get_conn
         conn = get_conn()
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM candidates")
-            db_stats["total"] = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM jobs")
-            db_stats["jobs"] = cur.fetchone()[0]
             cur.execute(
-                "SELECT COUNT(*) FROM candidates WHERE overall_score IS NOT NULL"
+                "SELECT COUNT(*) FROM candidates WHERE job_label = %s",
+                (selected_job,)
+            )
+            db_stats["total"] = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM candidates WHERE job_label = %s AND overall_score IS NOT NULL",
+                (selected_job,)
             )
             db_stats["ranked"] = cur.fetchone()[0]
             cur.execute(
-                "SELECT COUNT(*) FROM candidates WHERE rank_error IS NOT NULL AND rank_error != ''"
+                "SELECT COUNT(*) FROM candidates WHERE job_label = %s AND rank_error IS NOT NULL AND rank_error != ''",
+                (selected_job,)
             )
             db_stats["errors"] = cur.fetchone()[0]
             cur.execute("""
                 SELECT apply_id, candidate_name, overall_score, recommendation, ranked_at, rank_error
                 FROM candidates
-                WHERE overall_score IS NOT NULL
+                WHERE job_label = %s AND overall_score IS NOT NULL
                 ORDER BY ranked_at DESC NULLS LAST
                 LIMIT 10
-            """)
+            """, (selected_job,))
             db_stats["recent"] = cur.fetchall()
             cur.execute("""
                 SELECT apply_id, candidate_name, rank_error, ranked_at
                 FROM candidates
-                WHERE rank_error IS NOT NULL AND rank_error != ''
+                WHERE job_label = %s AND rank_error IS NOT NULL AND rank_error != ''
                 ORDER BY ranked_at DESC NULLS LAST
-            """)
+            """, (selected_job,))
             db_stats["err_rows"] = cur.fetchall()
     except Exception as e:
         st.error(f"Database error: {e}")
@@ -86,7 +116,6 @@ if ON_CLOUD:
     total   = db_stats["total"]
     ranked  = db_stats["ranked"]
     errors  = db_stats["errors"]
-    jobs    = db_stats["jobs"]
     recent  = db_stats["recent"]
     err_rows = db_stats["err_rows"]
 
@@ -119,13 +148,13 @@ if ON_CLOUD:
             st.error(f"Failed to fetch GitHub Actions status: {e}")
 
     # ── Top metrics bar (matches local layout) ─────────────────────────────────
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Total", total)
     c2.metric("Processed", ranked)
     c3.metric("✅ OK", max(0, ranked - errors))
     c4.metric("⚠ Errors", errors)
-    c5.metric("Jobs", jobs)
-    c6.metric("⚡ Speed", "—")
+    remaining = max(0, total - ranked)
+    c5.metric("⏳ Remaining", remaining)
 
     pct = (ranked / total) if total else 0.0
     st.progress(min(1.0, pct), text=f"Ranked {ranked} of {total or '?'} candidates")
@@ -147,7 +176,7 @@ if ON_CLOUD:
             })
         st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
-        st.caption("No candidates processed yet.")
+        st.caption("No candidates processed yet for this job.")
 
     # ── Errors expander (matches local) ────────────────────────────────────────
     with st.expander(f"Errored candidates ({len(err_rows)})", expanded=False):
@@ -164,6 +193,13 @@ if ON_CLOUD:
             )
         else:
             st.caption("No errors so far.")
+
+    # ── Auto refresh ───────────────────────────────────────────────────────────
+    if auto_refresh:
+        time.sleep(3)
+        st.rerun()
+    elif refresh_now:
+        st.rerun()
 
     st.stop()
 
