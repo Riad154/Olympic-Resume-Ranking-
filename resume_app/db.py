@@ -2703,13 +2703,20 @@ def to_excel(
         else:
             rdf = pd.DataFrame(columns=rank_cols)
         rdf.to_excel(writer, index=False, sheet_name="Rankings")
-        _style_sheet(writer.book["Rankings"], rdf, is_ranked=True)
+        if not rdf.empty:
+            _style_sheet(writer.book["Rankings"], rdf, is_ranked=True)
 
         # ── Sheet 2: Unranked ──────────────────────────────────────────────
         if unranked_df is not None and not unranked_df.empty:
             udf = _ensure_cols(unranked_df.copy(), unrank_cols)
             udf.to_excel(writer, index=False, sheet_name="Unranked")
             _style_sheet(writer.book["Unranked"], udf, is_ranked=False)
+
+        # pandas 3.0 workaround: ensure at least one visible sheet
+        for sheet in writer.book.worksheets:
+            sheet.sheet_state = "visible"
+        if not writer.book.worksheets:
+            writer.book.create_sheet("Rankings")
 
     out.seek(0)
     return out
