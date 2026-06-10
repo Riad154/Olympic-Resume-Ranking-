@@ -2594,11 +2594,11 @@ def _build_detail_columns(df: pd.DataFrame) -> pd.DataFrame:
     # education_details: degree + university + sub-scores
     def _edu_detail(row):
         parts = []
-        degree = row.get("degree") or ""
-        univ = row.get("university") or ""
-        if degree:
+        degree = str(row.get("degree") or "")
+        univ = str(row.get("university") or "")
+        if degree and degree.lower() != "nan":
             parts.append(degree)
-        if univ:
+        if univ and univ.lower() != "nan":
             parts.append(univ)
         edu_score = row.get("education_score")
         if edu_score is not None and int(edu_score or 0) > 0:
