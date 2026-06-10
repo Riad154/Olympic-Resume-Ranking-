@@ -442,11 +442,15 @@ def main():
         sys.exit(1)
 
     # ── Prepare output dirs ───────────────────────────────────────────
-    job_dir = os.path.join(args.output_dir, args.jobno)
+    # Folder name: "JobLabel_123456" or just "123456" if no label provided
+    safe_label = sanitize_filename(args.label).strip("_") if args.label else ""
+    folder_name = f"{safe_label}_{args.jobno}" if safe_label else args.jobno
+    job_dir = os.path.join(args.output_dir, folder_name)
     txt_dir = os.path.join(job_dir, "profiles_txt")
     cv_dir  = os.path.join(job_dir, "uploaded_cvs")
     os.makedirs(txt_dir, exist_ok=True)
     os.makedirs(cv_dir, exist_ok=True)
+    print(f"[INFO] Output folder: {job_dir}", flush=True)
 
     # ── Fetch applicants ──────────────────────────────────────────────
     print(f"[INFO] Fetching applicants for job {args.jobno} …", flush=True)
@@ -488,7 +492,7 @@ def main():
         print(f"[INFO] Filtered: {original_count} → {len(applicants)}", flush=True)
 
     # ── Save raw metadata ─────────────────────────────────────────────
-    meta_path = os.path.join(job_dir, f"{args.jobno}_metadata.csv")
+    meta_path = os.path.join(job_dir, f"{folder_name}_metadata.csv")
     json_path = os.path.join(job_dir, "candidates.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(applicants, f, indent=2)
