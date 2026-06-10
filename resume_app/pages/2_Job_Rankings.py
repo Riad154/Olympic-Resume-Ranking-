@@ -530,11 +530,22 @@ def _fetch_pdf_from_vm(pdf_path: str, job_label: str, apply_id: str = "") -> byt
         # Build a list of candidate folder names to try
         folders_to_try = [job_label]
 
+        # Extract folder name from the pdf_path itself (parent of uploaded_cvs)
+        # e.g. F:\...\downloaded_resumes\<FOLDER>\uploaded_cvs\file.pdf
+        path_parts = normalized_path.replace("\\", "/").split("/")
+        for i, part in enumerate(path_parts):
+            if part == "uploaded_cvs" and i > 0:
+                parent_folder = path_parts[i - 1]
+                if parent_folder and parent_folder not in folders_to_try:
+                    folders_to_try.append(parent_folder)
+                break
+
         # Try to extract numeric job_id from apply_id (e.g. "1344660_Arif_...")
         if apply_id:
             parts = apply_id.split("_")
             if parts and parts[0].isdigit():
-                folders_to_try.append(parts[0])
+                if parts[0] not in folders_to_try:
+                    folders_to_try.append(parts[0])
 
         # Also try extracting job_id from filename prefix (e.g. "1344660_Arif_...pdf")
         fname_parts = filename.split("_")
