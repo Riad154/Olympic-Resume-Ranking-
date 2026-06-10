@@ -1307,17 +1307,26 @@ def render_detail():
                                         use_container_width=True,
                                     )
                                 # Render as images inline (avoids iframe CSP)
-                                with st.spinner("Rendering PDF pages..."):
+                                MAX_PREVIEW_PAGES = 3
+                                PREVIEW_RESOLUTION = 100
+                                with st.spinner("Rendering PDF preview..."):
                                     try:
                                         import pdfplumber
                                         pdf_file = io.BytesIO(pdf_bytes)
                                         with pdfplumber.open(pdf_file) as pdf:
-                                            for idx, page in enumerate(pdf.pages):
-                                                img = page.to_image(resolution=150)
+                                            total_pages = len(pdf.pages)
+                                            pages_to_render = pdf.pages[:MAX_PREVIEW_PAGES]
+                                            for idx, page in enumerate(pages_to_render):
+                                                img = page.to_image(resolution=PREVIEW_RESOLUTION)
                                                 st.image(
                                                     img.original,
-                                                    caption=f"Page {idx + 1} of {len(pdf.pages)}",
+                                                    caption=f"Page {idx + 1} of {total_pages}",
                                                     use_container_width=True,
+                                                )
+                                            if total_pages > MAX_PREVIEW_PAGES:
+                                                st.info(
+                                                    f"📄 Showing first {MAX_PREVIEW_PAGES} of {total_pages} pages. "
+                                                    f"Use 'Open in New Tab' to view the full PDF."
                                                 )
                                     except Exception as render_err:
                                         st.warning(f"Could not render inline preview: {render_err}")
