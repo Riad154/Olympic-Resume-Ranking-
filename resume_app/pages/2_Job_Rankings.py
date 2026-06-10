@@ -1288,17 +1288,41 @@ def render_detail():
                         elif len(pdf_bytes) > 10 * 1024 * 1024:  # 10MB limit
                             st.warning("📄 PDF is large (>10MB). Please download to view locally.")
                         else:
-                            # On Streamlit Cloud: open in new tab (iframes blocked by CSP)
-                            # Locally: use base64 embedding in iframe
                             if pdf_url:
+                                # Streamlit Cloud: offer new-tab + inline image rendering
                                 st.info("📄 PDF loaded from remote server")
-                                st.link_button(
-                                    "🔍 Open PDF in New Tab",
-                                    url=pdf_url,
-                                    type="primary",
-                                    use_container_width=True,
-                                )
+                                col_link, col_local = st.columns([1, 1])
+                                with col_link:
+                                    st.link_button(
+                                        "🔍 Open in New Tab",
+                                        url=pdf_url,
+                                        type="primary",
+                                        use_container_width=True,
+                                    )
+                                with col_local:
+                                    st.link_button(
+                                        "⬇ Download PDF",
+                                        url=pdf_url,
+                                        type="secondary",
+                                        use_container_width=True,
+                                    )
+                                # Render as images inline (avoids iframe CSP)
+                                with st.spinner("Rendering PDF pages..."):
+                                    try:
+                                        import pdfplumber
+                                        pdf_file = io.BytesIO(pdf_bytes)
+                                        with pdfplumber.open(pdf_file) as pdf:
+                                            for idx, page in enumerate(pdf.pages):
+                                                img = page.to_image(resolution=150)
+                                                st.image(
+                                                    img.original,
+                                                    caption=f"Page {idx + 1} of {len(pdf.pages)}",
+                                                    use_container_width=True,
+                                                )
+                                    except Exception as render_err:
+                                        st.warning(f"Could not render inline preview: {render_err}")
                             else:
+                                # Local: use base64 embedding in iframe
                                 b64 = base64.b64encode(pdf_bytes).decode("utf-8")
                                 st.markdown(
                                     f'<iframe src="data:application/pdf;base64,{b64}" '
