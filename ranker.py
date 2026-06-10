@@ -1461,6 +1461,11 @@ async def call_ollama_async(
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=OLLAMA_TIMEOUT_SECS),
             ) as resp:
+                if resp.status == 504:
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history,
+                        status=504, message="Gateway Timeout — VM Ollama unreachable via Tailscale funnel. Check VM power, Tailscale status, and ollama serve."
+                    )
                 resp.raise_for_status()
                 body = await resp.json()
             content = body["message"]["content"]
@@ -1486,7 +1491,9 @@ async def call_ollama_async(
             last_err = e
             if attempt == retries - 1:
                 raise
-            await asyncio.sleep(2 ** attempt)
+            # Longer backoff for gateway timeouts (VM may need time to wake up)
+            delay = 5 * (2 ** attempt) if "504" in str(e) or "Gateway Timeout" in str(e) else 2 ** attempt
+            await asyncio.sleep(delay)
     raise last_err  # type: ignore[misc]
 
 
@@ -2161,10 +2168,24 @@ async def main_async(args):
             )
             for txt_path in pending_files
         ]
+        completed = 0
         for coro in tqdm_asyncio.as_completed(tasks, total=len(tasks), desc="Ranking"):
             apply_id, name, err = await coro
+            completed += 1
             if err:
                 errors.append((apply_id, name, err))
+                # CIRCUIT BREAKER: if first 5 all fail with gateway/connection errors,
+                # abort early — the VM is likely down or unreachable.
+                if completed <= 5 and len(errors) == completed:
+                    if all("504" in e or "Gateway" in e or "connection" in e.lower() or "Cannot connect" in e for _, _, e in errors):
+                        print(f"\n[CIRCUIT BREAKER] First {completed} candidates all failed with gateway/connection errors.")
+                        print(f"                  VM Ollama appears unreachable. Aborting remaining {len(tasks) - completed} candidates.")
+                        print("                  Check: VM power, Tailscale status, ollama serve on the VM.")
+                        # Cancel remaining tasks
+                        for t in tasks:
+                            if not t.done():
+                                t.cancel()
+                        break
 
     # Flush any remaining commits
     try:
