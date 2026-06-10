@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Md. Najimur Rahman
+ApplyID:       341995741
+CrpApplID:     5984472000ID300845
+Email:         najimur.rahman47@gmail.com
+Mobile:        01718614785,01937416014
+Degree:        Master of Business Administration (MBA)
+University:    Northern University Bangladesh
+Experience:    Manusher Jonno Foundation##Accounts Officer (1+ year)*|*World Child Cancer##Finance and Administration Manager (7+ years)
+Location:      Mohammadpur, Dhaka
+CurrentSalary: 70,000
+ExpSalary:     40,000
+MatchScore:    87%
+AppliedDate:   11 Feb 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-06-10T09:54:15.400986
+============================================
+

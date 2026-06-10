@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Humayoun Kabir
+ApplyID:       342526055
+CrpApplID:     42606472014ID2131561
+Email:         topu.1695@gmail.com
+Mobile:        01688475950,
+Degree:        Masters of Arts (MA)
+University:    European University
+Experience:    Apex Footwear Ltd.##Assistant Officer (1+ year)*|*Shugandha Group of Companies##Executive (2+ years)
+Location:      Kaliakair, Gazipur
+CurrentSalary: 45,000
+ExpSalary:     30,000
+MatchScore:    82%
+AppliedDate:   17 Feb 2025
+AttachedCV:    No
+ScrapedAt:     2026-06-10T09:54:28.051391
+============================================
+

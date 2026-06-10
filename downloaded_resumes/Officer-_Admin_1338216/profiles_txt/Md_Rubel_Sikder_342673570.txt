@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Md. Rubel Sikder
+ApplyID:       342673570
+CrpApplID:     47541352009ID2376337
+Email:         bsssikder@gmail.com
+Mobile:        01766732741,01810152800
+Degree:        Master of Social Science (MSS)
+University:    University of Dhaka ( Dhaka College)
+Experience:    Orion Home Appliances Ltd.##Senior Officer Administration (3+ years)*|*Modhumoti Cargo Service##Manager, Operation (3+ years)
+Location:      Bhaluka, Mymensingh
+CurrentSalary: 38,790
+ExpSalary:     50,000
+MatchScore:    87%
+AppliedDate:   18 Feb 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-06-10T09:54:17.786847
+============================================
+

@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          MD. SANWAR HUSSAIN.
+ApplyID:       342103538
+CrpApplID:     32392222014ID1618273
+Email:         hussainmsanwar@gmail.com
+Mobile:        01867270720,01766688950
+Degree:        Master`s of Public Administration (MPA)
+University:    Jahangirnagar University
+Experience:    Gazi International ( A sister concern of Gazi Group)##Assistant Manager, HR and Admin (6+ months)*|*Gazi International (A Sister concern of Gazi Group)##Sr. Officer,HR & Admin (3+ years)
+Location:      Mirpur 1, Dhaka
+CurrentSalary: 45,000
+ExpSalary:     45,000
+MatchScore:    82%
+AppliedDate:   12 Feb 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-06-10T09:54:25.540402
+============================================
+

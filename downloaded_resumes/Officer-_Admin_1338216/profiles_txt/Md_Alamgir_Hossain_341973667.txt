@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Md Alamgir Hossain
+ApplyID:       341973667
+CrpApplID:     46623432007ID2332121
+Email:         alamgirdtgv@gmail.com
+Mobile:        01773540618,01773540618
+Degree:        Master of Social Science (MSS)
+University:    Govt Titumir College Affiliated Dhaka Univesity
+Experience:    Dan Foods Limited##Territory Sales Executive (2+ months)*|*Dan Foods Limited##Territory Sales Executive (1+ year)
+Location:      Cumilla Adarsha Sadar, Cumilla
+CurrentSalary: 35,000
+ExpSalary:     30,000
+MatchScore:    100%
+AppliedDate:   11 Feb 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-06-10T09:54:11.696180
+============================================
+

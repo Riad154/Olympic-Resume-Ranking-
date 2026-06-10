@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Md. Mahfujur Rahaman
+ApplyID:       342017133
+CrpApplID:     7625332013ID382632
+Email:         layesmahfuj@gmail.com
+Mobile:        01715388178,
+Degree:        Executive Master of Business Administration (EMBA)
+University:    Dhaka International University
+Experience:    Vector System##Senior  Admin Executive (2+ years)*|*ACI LIMITED##Supervisor (1 year)
+Location:      
+CurrentSalary: 27,500
+ExpSalary:     25,000
+MatchScore:    87%
+AppliedDate:   12 Feb 2025
+AttachedCV:    No
+ScrapedAt:     2026-06-10T09:54:17.156330
+============================================
+

@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Mohammad Abid Hossain Aumit
+ApplyID:       382842754
+CrpApplID:     56071032032ID2801829
+Email:         aumit666@gmail.com
+Mobile:        01673777252,
+Degree:        Bachelor of Business Administration (BBA)
+University:    Stamford University Bangladesh
+Experience:    Mycell Technology Limited##Assistant Manager Operations (2+ years)*|*Mycell Technology Ltd##Senior Executive Operations (2+ years)
+Location:      Rampura, Dhaka
+CurrentSalary: 35,000
+ExpSalary:     45,000
+MatchScore:    100%
+AppliedDate:   28 Feb 2025
+AttachedCV:    Yes
+ScrapedAt:     2026-06-10T09:54:12.502460
+============================================
+

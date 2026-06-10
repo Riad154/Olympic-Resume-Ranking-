@@ -1,0 +1,18 @@
+=== BDJobs Candidate Profile ===
+Name:          Jarin Tasnim
+ApplyID:       342561311
+CrpApplID:     15067401995ID751904
+Email:         jarintasnin1@gmail.com
+Mobile:        01776199005,
+Degree:        PGDHRM
+University:    Bangladesh Institute of Management (BIM)
+Experience:    Envision Realty International Pvt. Ltd (Authorised channel partner Rupayan Housing Estate Ltd.)##Manager (HR-Admin & Accounts) (8+ years)*|*Khan`s & Khan Research and Development Foundation##Assistant Manager (HR & Admin) (1 year)
+Location:      Tejgaon, Dhaka
+CurrentSalary: 50,000
+ExpSalary:     60,000
+MatchScore:    82%
+AppliedDate:   17 Feb 2025
+AttachedCV:    No
+ScrapedAt:     2026-06-10T09:54:23.659403
+============================================
+
