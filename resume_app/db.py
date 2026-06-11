@@ -12,16 +12,18 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(str(_env_path), override=True)
+except Exception:
+    pass
+
 import psycopg2
 import psycopg2.extras
 import pandas as pd
 import streamlit as st
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
 
 # ── BDJobs Registry (43 live listings) ─────────────────────────────────────────
 try:
@@ -34,6 +36,12 @@ except ImportError:
 def _pg_conf():
     """Build PG connection dict from env vars (local/GitHub Actions) or
     st.secrets (Streamlit Cloud). Returns empty dict if not configured."""
+    # Read env vars FIRST — st.secrets.get() has a side-effect that
+    # can clear os.environ when run outside a Streamlit app context.
+    env_host = (os.environ.get("PG_HOST", "") or "").strip()
+    env_user = (os.environ.get("PG_USER", "") or "").strip()
+    env_password = (os.environ.get("PG_PASSWORD", "") or "").strip()
+
     # Try st.secrets first (Streamlit Cloud)
     try:
         pg = st.secrets.get("postgresql", {})
@@ -55,18 +63,15 @@ def _pg_conf():
         pass
 
     # Fall back to environment variables (local / GitHub Actions)
-    host = (os.environ.get("PG_HOST", "") or "").strip()
-    user = (os.environ.get("PG_USER", "") or "").strip()
-    password = (os.environ.get("PG_PASSWORD", "") or "").strip()
-    if not host or not user:
+    if not env_host or not env_user:
         return {}  # Not configured
     port_str = os.environ.get("PG_PORT", "5432") or "5432"
     return {
-        "host":     host,
+        "host":     env_host,
         "port":     int(port_str),
         "dbname":   (os.environ.get("PG_DBNAME", "") or "").strip() or "resume_ranking",
-        "user":     user,
-        "password": password,
+        "user":     env_user,
+        "password": env_password,
     }
 
 PG_CONN = _pg_conf()
