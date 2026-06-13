@@ -660,85 +660,159 @@ else:
 st.markdown("---")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# B. BDJobs CV Sync (GitHub Actions) — shown on Cloud, and as remote option on Local
+# B. Start a new download (local)
 # ══════════════════════════════════════════════════════════════════════════════
-if on_cloud:
-    st.markdown("### ☁️ BDJobs CV Sync (GitHub Actions)")
-    st.info(
-        "Playwright browsers cannot run on Streamlit Community Cloud. "
-        "CV downloading is handled by a **GitHub Actions** workflow that runs on Ubuntu runners. "
-        "Fill in the job details and click **Trigger Sync** below.",
-        icon="☁️",
-    )
-else:
-    st.markdown("### ☁️ BDJobs CV Sync (GitHub Actions)")
-    st.info(
-        "Alternatively, trigger a **GitHub Actions** workflow remotely to download CVs. "
-        "This is useful if you don't have a local browser or want to run the scraper on GitHub's servers.",
-    )
+st.markdown("### ⬇️ Start a new download")
 
-with st.form("gha_sync_form", clear_on_submit=False):
-    gha_label = st.text_input(
-        "Job Label",
-        placeholder="e.g., CostControl-SrExecutive",
-        help="Must match the job label used in the app.",
-    )
-    gha_url = st.text_input(
-        "BDJobs Job URL",
-        placeholder="https://employer.bdjobs.com/...",
-        help="The full BDJobs employer portal URL for this job posting.",
-    )
-    gha_max = st.number_input(
-        "Max candidates", min_value=0, value=0,
-        help="0 = download all applicants. Set a limit for testing.",
-    )
-    gha_dept = st.selectbox("Department", DEPARTMENT_LIST, index=0)
-    gha_force_login = st.checkbox(
-        "🔄 Force fresh login (clear old BDJobs session)",
-        value=False,
-        help="Check this if the scraper fails with 'Session is not authenticated'. "
-             "It will clear the saved browser session and do a fresh login.",
-    )
-    submitted_gha = st.form_submit_button(
-        "🚀 Trigger GitHub Actions Sync", type="primary", use_container_width=True,
-    )
-
-# ── Test token button for diagnostics ──────────────────────────────────
-st.markdown("---")
-with st.expander("🔧 Diagnostics: Test GitHub Token", expanded=False):
-    if st.button("🧪 Test GitHub Token", key="test_gha_token"):
-        sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
-        from github_actions import test_github_token
-        ok, msg = test_github_token()
-        if ok:
-            st.success(msg)
-        else:
-            st.error(msg)
-
-if submitted_gha:
-    if not gha_label.strip() or not gha_url.strip():
-        st.error("Job label and URL are required.")
-    elif "jobno=" not in gha_url:
-        st.error("URL must contain a `jobno=` parameter.")
-    else:
-        sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
-        from github_actions import trigger_bdjobs_scrape
-        ok, msg = trigger_bdjobs_scrape(
-            job_label=gha_label.strip(),
-            job_url=gha_url.strip(),
-            max_candidates=int(gha_max),
-            department=gha_dept,
-            force_relogin=gha_force_login,
+with st.form("download_form", clear_on_submit=False):
+    c1, c2 = st.columns(2)
+    with c1:
+        label = st.text_input(
+            "Job label",
+            placeholder="e.g., CostControl-SrExecutive",
+            help="Used as the folder name under downloaded_resumes/. Keep it short and URL-safe.",
         )
-        if ok:
-            st.success(msg)
+    with c2:
+        url = st.text_input(
+            "BDJobs Job URL",
+            placeholder="https://employer.bdjobs.com/...",
+            help="The full BDJobs employer portal URL for this job posting.",
+        )
+        jobno = _extract_jobno(url)
+        if url and not jobno:
+            st.warning("⚠️ No `jobno=` found in URL. Copy the full URL from the employer portal.")
+
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        max_candidates = st.number_input(
+            "Max candidates", min_value=0, value=500,
+            help="0 = download all applicants. Set a limit for testing.",
+        )
+    with f2:
+        min_bdjobs_score = st.number_input(
+            "Min BDJobs score", min_value=0, max_value=100, value=0,
+            help="Skip candidates with a BDJobs score below this threshold.",
+        )
+    with f3:
+        dept = st.selectbox("Department", DEPARTMENT_LIST, index=0)
+
+    with st.expander("🔧 Advanced filters", expanded=False):
+        cv_only = st.checkbox(
+            "CV-only mode",
+            value=False,
+            help="Skip candidates who haven't uploaded a CV.",
+        )
+
+        f4, f5 = st.columns(2)
+        with f4:
+            location_filter = st.text_input(
+                "Location contains (optional)",
+                placeholder="e.g., Dhaka, Narayanganj",
+                help="Only download candidates whose location contains this text (case-insensitive).",
+            )
+        with f5:
+            exp_keyword = st.text_input(
+                "Experience contains (optional)",
+                placeholder="e.g., FMCG, Manager",
+                help="Only download candidates whose experience field contains this text.",
+            )
+
+        st.caption("💡 Filters are applied after fetching candidate list from BDJobs. The downloader will skip candidates that don't match your criteria.")
+    c1, c2, _ = st.columns([1, 1, 2])
+    auto_rank_cb = c1.checkbox("Run ranker after download", value=True,
+                                help=f"After download finishes, automatically run "
+                                     f"`ranker.py --job {{label}} --department {{dept}}`.")
+    submitted = c2.form_submit_button("🚀 Start download", type="primary")
+
+if submitted:
+    if not url or not jobno:
+        st.error("❌ URL is invalid — could not find a `jobno=` parameter.")
+    elif not label.strip():
+        st.error("❌ Job label is required.")
+    elif status["state"] == "missing":
+        st.error("❌ No BDJobs session saved. Click 'Re-login to BDJobs' above first.")
+    else:
+        label_safe = _sanitize_label(label)
+        p, lp = _spawn_downloader(
+            label_safe, url.strip(),
+            max_candidates=max_candidates,
+            min_bdjobs_score=min_bdjobs_score,
+            cv_only=cv_only,
+            location_filter=location_filter,
+            exp_keyword=exp_keyword,
+        )
+        st.session_state["bdjobs_dl_proc"]   = p
+        st.session_state["bdjobs_dl_log"]    = lp
+        st.session_state["bdjobs_dl_label"]  = label_safe
+        st.session_state["bdjobs_dl_dept"]   = dept
+        st.session_state["bdjobs_dl_url"]    = url.strip()
+        st.session_state["bdjobs_auto_rank"] = auto_rank_cb
+        st.session_state["bdjobs_phase"]     = "downloading"
+        st.session_state["bdjobs_dl_start"]  = datetime.now().isoformat()
+        st.toast("Downloader started. A Chromium window will appear.")
+        time.sleep(1)
+        st.rerun()
+
+# ── Download progress monitoring ──────────────────────────────────────────────
+dl_proc = st.session_state.get("bdjobs_dl_proc")
+dl_log  = st.session_state.get("bdjobs_dl_log")
+dl_label = st.session_state.get("bdjobs_dl_label", "")
+
+if _is_alive(dl_proc):
+    st.info(f"⬇️ Downloading **{dl_label}** …")
+    progress, log_text = _read_log_split(dl_log)
+    if progress:
+        total = progress.get("total", 0)
+        done  = progress.get("done", 0)
+        failed = progress.get("failed", 0)
+        if total > 0:
+            pct = min(done / total, 1.0)
+            st.progress(pct, text=f"{done}/{total} profiles  •  {failed} failed")
         else:
-            st.error(msg)
+            st.progress(0, text="Starting…")
+    else:
+        st.progress(0, text="Starting…")
+    with st.expander("Download log", expanded=False):
+        st.code(log_text or "(no output yet)", language="text")
+    if st.button("✖ Cancel download", key="cancel_dl"):
+        try:
+            dl_proc.terminate()
+        except Exception:
+            pass
+        for k in ("bdjobs_dl_proc", "bdjobs_dl_log", "bdjobs_dl_label",
+                  "bdjobs_dl_dept", "bdjobs_dl_url", "bdjobs_auto_rank",
+                  "bdjobs_phase", "bdjobs_dl_start"):
+            st.session_state.pop(k, None)
+        st.rerun()
+    time.sleep(3)
+    st.rerun()
+
+elif dl_proc is not None:
+    # Just finished
+    rc = dl_proc.returncode
+    if rc == 0:
+        st.success(f"✅ Download **{dl_label}** completed successfully.")
+        auto_rank = st.session_state.get("bdjobs_auto_rank", False)
+        if auto_rank and dl_label:
+            dept = st.session_state.get("bdjobs_dl_dept", "")
+            rp, rlp = _spawn_ranker(dl_label, dept)
+            st.session_state["bdjobs_ranker_proc"] = rp
+            st.session_state["bdjobs_ranker_log"]  = rlp
+            st.info(f"🚀 Auto-ranker started for **{dl_label}** (PID {rp.pid}).")
+            st.page_link("pages/4_Processing_Status.py", label="⏳ Open Processing Status →")
+    else:
+        st.error(f"❌ Download **{dl_label}** exited with code {rc}.")
+        with st.expander("Download log", expanded=True):
+            st.code(_read_log(dl_log) or "(no output)", language="text")
+    for k in ("bdjobs_dl_proc", "bdjobs_dl_log", "bdjobs_dl_label",
+              "bdjobs_dl_dept", "bdjobs_dl_url", "bdjobs_auto_rank",
+              "bdjobs_phase", "bdjobs_dl_start"):
+        st.session_state.pop(k, None)
 
 st.markdown("---")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# B. Upload CVs (Single, Multiple, Bulk, OCR)
+# C. Upload CVs (Single, Multiple, Bulk, OCR)
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("### ⬆️ Upload CVs")
 st.caption("Upload CVs manually — supports single PDF, multiple PDFs, bulk ZIP files, and scanned/OCR documents.")
