@@ -1365,6 +1365,7 @@ def fetch_all_jobs(conn) -> pd.DataFrame:
             LEFT JOIN candidates c ON c.job_label = j.job_label
             GROUP BY j.job_label, j.job_title, j.department, j.status,
                      j.created_at, j.last_ranked_at
+            HAVING COUNT(c.id) > 0
             ORDER BY j.created_at DESC
         """)
         rows = cur.fetchall()
@@ -2258,13 +2259,13 @@ def fetch_global_stats(conn=None) -> dict:
     a stale snapshot."""
     fresh = fresh_conn()
     with fresh.cursor() as cur:
-        # Count jobs from jobs table (BDJobs seeded jobs) instead of candidates
+        # Only count jobs that actually have candidates (clean-interface rule)
         cur.execute("""
             SELECT
-                (SELECT COUNT(*) FROM jobs)                    AS total_jobs,
-                COUNT(*)                                        AS total_candidates,
+                (SELECT COUNT(DISTINCT job_label) FROM candidates) AS total_jobs,
+                COUNT(*)                                            AS total_candidates,
                 SUM(CASE WHEN overall_score IS NULL THEN 1 ELSE 0 END) AS pending,
-                ROUND(AVG(overall_score))                       AS avg_score
+                ROUND(AVG(overall_score))                           AS avg_score
             FROM candidates
         """)
         row = cur.fetchone()
