@@ -20,14 +20,14 @@ from db import (
     fetch_departments, fetch_jobs_by_department, fetch_candidates_by_department,
     to_excel, save_hr_override, delete_candidate,
     get_css, init_theme, render_sidebar, safe_switch_page,
-    VERDICT_CFG, SCORE_DIMS,
+    VERDICT_CFG, SCORE_DIMS, FAVICON,
     get_active_processing, render_processing_banner,
 )
 
 # ── Page chrome ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Department Rankings — HR Intelligence",
-    page_icon="../olympic_favicon.png",
+    page_icon=FAVICON,
     layout="wide",
     initial_sidebar_state="expanded",
 )

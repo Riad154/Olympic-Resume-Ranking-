@@ -28,7 +28,7 @@ import streamlit as st
 
 from db import (
     get_css, init_theme, render_sidebar, safe_switch_page,
-    DEPARTMENT_LIST, list_download_folders,
+    DEPARTMENT_LIST, list_download_folders, FAVICON,
     RESUMES_BASE, RANKER_PATH, VENV_PYTHON,
     get_conn, save_bdjobs_credentials, get_bdjobs_credentials,
     has_bdjobs_credentials, _is_streamlit_cloud,
@@ -37,7 +37,7 @@ from db import (
 # ── Page chrome ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Download/Upload CVs — HR Intelligence",
-    page_icon="../olympic_favicon.png",
+    page_icon=FAVICON,
     layout="wide",
     initial_sidebar_state="expanded",
 )

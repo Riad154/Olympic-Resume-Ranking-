@@ -11,7 +11,7 @@ import requests
 import psycopg2
 import streamlit as st
 from db import (
-    get_conn, get_css, init_theme, render_sidebar, PG_CONN, pg_is_configured,
+    get_conn, get_css, init_theme, render_sidebar, PG_CONN, pg_is_configured, FAVICON,
     fetch_all_jobs, get_job_department, update_job_status,
     fix_inconsistent_verdicts, associate_candidates_with_job,
     get_bdjobs_credentials, save_bdjobs_credentials,
@@ -42,7 +42,7 @@ def _spawn_rerank(label: str, department: str, normalise: bool):
     )
     return proc, str(log_path)
 
-st.set_page_config(page_title="Settings — HR Intelligence", page_icon="../olympic_favicon.png", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Settings — HR Intelligence", page_icon=FAVICON, layout="wide", initial_sidebar_state="expanded")
 init_theme()
 st.markdown(get_css(), unsafe_allow_html=True)
 render_sidebar()

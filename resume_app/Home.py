@@ -10,12 +10,12 @@ from db import (
     get_conn,
     fetch_all_jobs, fetch_departments, fetch_global_stats, set_job_department,
     get_css, init_theme, render_sidebar, safe_switch_page,
-    DEPARTMENT_LIST,
+    DEPARTMENT_LIST, FAVICON,
 )
 
 st.set_page_config(
     page_title="HR Intelligence — Olympic Industries",
-    page_icon="olympic_favicon.png",
+    page_icon=FAVICON,
     layout="wide",
     initial_sidebar_state="expanded",
 )

@@ -30,13 +30,13 @@ from db import (
     init_theme,
     render_sidebar,
     safe_switch_page,
-    _is_streamlit_cloud,
+    _is_streamlit_cloud, FAVICON,
 )
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Job Rankings",
-    page_icon="../olympic_favicon.png",
+    page_icon=FAVICON,
     layout="wide",
     initial_sidebar_state="expanded",
 )

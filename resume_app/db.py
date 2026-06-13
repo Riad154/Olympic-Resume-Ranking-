@@ -31,6 +31,12 @@ try:
 except ImportError:
     from _bdjobs_registry import BDJOBS_JOB_REGISTRY
 
+# ── Favicon (Olympic logo) ────────────────────────────────────────────────────
+try:
+    from _favicon import OLYMPIC_FAVICON as FAVICON
+except Exception:
+    FAVICON = "📋"
+
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 def _pg_conf():

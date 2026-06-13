@@ -17,7 +17,7 @@ from pathlib import Path
 import requests
 import streamlit as st
 
-from db import get_css, init_theme, render_sidebar, _is_streamlit_cloud
+from db import get_css, init_theme, render_sidebar, _is_streamlit_cloud, FAVICON
 
 
 # ── Config / paths ────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ if ON_CLOUD:
 
 st.set_page_config(
     page_title="Processing Status — HR Intelligence",
-    page_icon="../olympic_favicon.png",
+    page_icon=FAVICON,
     layout="wide",
     initial_sidebar_state="expanded",
 )
