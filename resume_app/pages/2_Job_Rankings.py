@@ -1247,6 +1247,7 @@ def render_detail():
         if not pdf_exists:
             st.error("📄 No resume uploaded for this candidate.")
         else:
+            # Buttons row: Open / Download
             col_link, col_download = st.columns([1, 1])
             with col_link:
                 if pdf_url:
@@ -1258,20 +1259,11 @@ def render_detail():
                         use_container_width=True,
                     )
                 else:
-                    # Local: embedded iframe
-                    try:
-                        if pdf_bytes and pdf_bytes[:4] == b"%PDF":
-                            b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-                            st.markdown(
-                                f'<iframe src="data:application/pdf;base64,{b64}" '
-                                f'width="100%" height="820px" style="border:1px solid {card_bdr};border-radius:8px;margin-top:0.5rem;"></iframe>',
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            st.error("⚠️ PDF data not available or invalid.")
-                    except Exception as e:
-                        st.error(f"❌ Failed to load PDF: {str(e)}")
-            
+                    st.markdown(
+                        '<div style="text-align:center;padding:0.5rem 0;color:#64748B;font-size:0.85rem;">'
+                        'PDF viewer below ⬇️</div>',
+                        unsafe_allow_html=True,
+                    )
             with col_download:
                 st.download_button(
                     "⬇ Download PDF",
@@ -1281,6 +1273,18 @@ def render_detail():
                     key=f"dl_pdf_{apply_id}",
                     use_container_width=True,
                 )
+
+            # Full-width PDF viewer — rendered outside columns so it spans the whole page
+            if not pdf_url and pdf_bytes and pdf_bytes[:4] == b"%PDF":
+                try:
+                    b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+                    st.markdown(
+                        f'<iframe src="data:application/pdf;base64,{b64}" '
+                        f'width="100%" height="920px" style="border:1px solid {card_bdr};border-radius:8px;margin-top:0.8rem;"></iframe>',
+                        unsafe_allow_html=True,
+                    )
+                except Exception as e:
+                    st.error(f"❌ Failed to load PDF: {str(e)}")
 
     # ── Errors ─────────────────────────────────────────────────────────────────────
     if not errors_df.empty:
