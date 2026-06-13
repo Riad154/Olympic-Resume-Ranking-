@@ -11,7 +11,6 @@ from db import (
     fetch_all_jobs, fetch_departments, fetch_global_stats, set_job_department,
     get_css, init_theme, render_sidebar, safe_switch_page,
     DEPARTMENT_LIST,
-    BDJOBS_JOB_REGISTRY,
 )
 
 st.set_page_config(
@@ -118,93 +117,6 @@ with col_btn:
             safe_switch_page("pages/1_Department_Rankings.py")
 
 st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Department-grouped job postings ────────────────────────────────────────────
-st.markdown(
-    f'<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
-    'Active Job Postings</div>',
-    unsafe_allow_html=True,
-)
-
-if jobs_df.empty:
-    st.info("No job postings yet. Use **New Job Posting** to register one.")
-else:
-    # Group by department
-    jobs_df = jobs_df.copy()
-    jobs_df["department"] = jobs_df["department"].fillna("Uncategorized")
-    # Sort groups: non-Uncategorized first by name, Uncategorized last
-    dept_names = sorted(
-        jobs_df["department"].unique(),
-        key=lambda d: (d == "Uncategorized", d),
-    )
-
-    status_cls = {
-        "Complete":   "status-complete",
-        "Processing": "status-processing",
-        "Pending":    "status-pending",
-        "Error":      "status-error",
-    }
-
-    def _open_roles_count(dept_name: str) -> int:
-        return sum(1 for m in BDJOBS_JOB_REGISTRY.values() if m.get("department") == dept_name)
-
-    for dept in dept_names:
-        group = jobs_df[jobs_df["department"] == dept]
-        open_roles = _open_roles_count(dept)
-        with st.expander(
-            f"{dept}  ({len(group)} posting{'s' if len(group) != 1 else ''}) · {open_roles} open role{'s' if open_roles != 1 else ''}",
-            expanded=True,
-        ):
-            for _, row in group.iterrows():
-                total  = int(row.get("total") or 0)
-                ranked = int(row.get("ranked") or 0)
-                short  = int(row.get("shortlisted") or 0)
-                avg    = row.get("avg_score") or "—"
-                status = str(row.get("status") or "Pending")
-                title  = str(row.get("job_title") or row["job_label"])
-                label  = str(row["job_label"])
-                posted = str(row.get("created_at") or "")
-                last   = str(row.get("last_ranked_at") or "—")
-                prog   = int(ranked / total * 100) if total > 0 else 0
-                scls   = status_cls.get(status, "status-pending")
-
-                col_main, col_action = st.columns([6, 1])
-                with col_main:
-                    st.markdown(
-                        f"""
-                        <div style="background:{card_bg};border:1px solid {card_bdr};border-radius:8px;
-                                    padding:1rem 1.2rem;margin-bottom:0.6rem;">
-                            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:4px;">
-                                <span style="font-size:0.95rem;font-weight:600;color:{txt_col} !important;">{title}</span>
-                                <span class="status-badge {scls}">{status}</span>
-                                <span style="font-size:0.72rem;color:{sub_col} !important;">· {label}</span>
-                            </div>
-                            <div style="font-size:0.8rem;color:{sub_col} !important;margin-bottom:8px;">
-                                Posted {posted} &nbsp;·&nbsp; {ranked}/{total} ranked &nbsp;·&nbsp;
-                                🟢 {short} shortlisted &nbsp;·&nbsp; Avg score: {avg} &nbsp;·&nbsp; Last run: {last}
-                            </div>
-                            <div style="background:{bar_bg};border-radius:4px;height:5px;">
-                                <div style="background:{bar_fill};width:{prog}%;height:5px;border-radius:4px;"></div>
-                            </div>
-                            <div style="font-size:0.72rem;color:#94A3B8 !important;margin-top:3px;">{prog}% processed</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                with col_action:
-                    st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
-                    if st.button(
-                        "View Results",
-                        key=f"view_{label}",
-                        type="primary",
-                        use_container_width=True,
-                    ):
-                        st.session_state["selected_job"]     = label
-                        st.session_state["jr_active_job"]    = label
-                        st.session_state["jr_mode"]          = "detail"
-                        st.session_state["jr_incoming_via"]  = "dashboard"
-                        st.session_state["selected_dept"]    = dept
-                        safe_switch_page("pages/2_Job_Rankings.py")
 
 # ── Assign Departments UI (only shows if there are Uncategorized jobs) ────────
 if not jobs_df.empty:
