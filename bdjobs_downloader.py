@@ -83,7 +83,7 @@ DELAY_MIN            = 0.5    # seconds between candidates
 DELAY_MAX            = 1.5    # — still randomized for anti-bot
 PAGE_LOAD_TIMEOUT    = 30000  # ms
 POPUP_TIMEOUT        = 15000  # ms
-DOWNLOAD_TIMEOUT     = 30000  # ms
+DOWNLOAD_TIMEOUT     = 60000  # ms
 IFRAME_POLL_TIMEOUT  = 20     # seconds to wait for iframe text content
 MIN_PROFILE_CHARS    = 300    # minimum chars to accept as a valid profile scrape
 UI_PAGE_SIZE         = 50     # candidates per UI page
@@ -462,6 +462,9 @@ def download_uploaded_cv(page, card, job_id: str, safe_name: str,
         pass
 
     # Strategy B: JS click + synthetic events on the element
+    # If the element is an <a> with href, BDJobs may open it in a new tab
+    # rather than firing a browser download event. In that case we fetch
+    # the href directly (handled in Strategy E fallback).
     if not download_triggered:
         try:
             with page.expect_download(timeout=DOWNLOAD_TIMEOUT) as _dl:
@@ -470,8 +473,6 @@ def download_uploaded_cv(page, card, job_id: str, safe_name: str,
                     el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));
                     el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));
                     el.dispatchEvent(new MouseEvent('click',{bubbles:true,button:0}));
-                    // If it's an <a> with href, force navigation
-                    if (el.tagName === 'A' && el.href) { window.open(el.href,'_blank'); }
                 }""")
             dl_info = _dl.value
             download_triggered = True
@@ -503,6 +504,37 @@ def download_uploaded_cv(page, card, job_id: str, safe_name: str,
             download_triggered = True
         except PwTimeout:
             pass
+        except Exception:
+            pass
+
+    # Strategy E: direct HTTP fetch via href / data-url
+    # BDJobs sometimes serves CVs via <a href="..."> that opens a viewer
+    # tab rather than triggering a browser download event.
+    if not download_triggered and cv_btn:
+        try:
+            url = cv_btn.evaluate("""el => {
+                return el.href
+                    || el.getAttribute('href')
+                    || el.getAttribute('data-url')
+                    || el.getAttribute('data-download-url')
+                    || el.closest('a')?.href
+                    || null;
+            }""")
+            if url and url.strip():
+                # Make absolute URL if relative
+                raw_url = url.strip()
+                if raw_url.startswith('/'):
+                    base = page.url.rsplit('/', 1)[0]
+                    raw_url = base + raw_url
+                resp = page.request.get(raw_url)
+                if resp and resp.status == 200:
+                    body = resp.body()
+                    if body and len(body) > 100 and body[:4] == b'%PDF':
+                        filename = f"{job_id}_{safe_name}_{ts}_uploaded.pdf"
+                        save_path = os.path.join(cv_dir, filename)
+                        with open(save_path, "wb") as f:
+                            f.write(body)
+                        return filename, "success"
         except Exception:
             pass
 
