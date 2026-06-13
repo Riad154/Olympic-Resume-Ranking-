@@ -363,8 +363,25 @@ def render_landing():
     )
 
     depts = fetch_departments_with_roles(conn)
-    if not depts:
-        st.info("No open roles found. Add a job posting from the Dashboard or Settings page.")
+    # Filter out roles with zero candidates and departments left empty
+    clean_depts = []
+    for dept in depts:
+        roles = [r for r in dept.get("roles", []) if r.get("total", 0) > 0]
+        if roles:
+            dept = dict(dept)
+            dept["roles"] = roles
+            dept["total_roles"] = len(roles)
+            dept["total_applicants"] = sum(r.get("total", 0) for r in roles)
+            dept["total_ranked"] = sum(r.get("ranked", 0) for r in roles)
+            clean_depts.append(dept)
+
+    if not clean_depts:
+        st.info(
+            "🎉 Welcome to the HR Ranking Platform.\n\n"
+            "No job postings with candidates yet. "
+            "Go to **Download/Upload CVs** to fetch BDJobs applicants, "
+            "then rank them to see results here."
+        )
         return
 
     # Search box (landing only)
@@ -376,7 +393,7 @@ def render_landing():
 
     last_dept = st.session_state.get("jr_last_dept")
 
-    for dept in depts:
+    for dept in clean_depts:
         dept_name = dept.get("department") or "Uncategorized"
         roles = dept.get("roles", [])
 

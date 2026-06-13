@@ -21,7 +21,6 @@ from db import (
     to_excel, save_hr_override, delete_candidate,
     get_css, init_theme, render_sidebar, safe_switch_page,
     VERDICT_CFG, SCORE_DIMS,
-    BDJOBS_JOB_REGISTRY,
     get_active_processing, render_processing_banner,
 )
 
@@ -225,82 +224,6 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         )
         out = out[mask]
     return out.reset_index(drop=True)
-
-
-def _render_open_roles_for_dept(department: str, job_rows_for_dept: list, conn):
-    """Shows BDJobs open role cards for this department.
-
-    Each card shows: role title, experience, salary, location, key required skills.
-    Clicking 'View Rankings' navigates to Job Rankings for that specific job.
-    """
-    dept_jobs = [
-        (label, meta) for label, meta in BDJOBS_JOB_REGISTRY.items()
-        if meta.get("department") == department
-    ]
-
-    if not dept_jobs:
-        return
-
-    is_day = st.session_state.get("day_mode", True)
-    card_bg  = "#FFFFFF" if is_day else "#1E2435"
-    card_bdr = "#E2E8F0" if is_day else "#2D3748"
-    txt_col  = "#1E293B" if is_day else "#E2E8F0"
-    sub_col  = "#64748B"
-
-    st.markdown(
-        f'<div class="section-hd" style="margin-top:1rem;">Open Roles ({len(dept_jobs)})</div>',
-        unsafe_allow_html=True,
-    )
-
-    # Display in 2 columns
-    for i in range(0, len(dept_jobs), 2):
-        cols = st.columns(2)
-        for j, (label, meta) in enumerate(dept_jobs[i:i+2]):
-            with cols[j]:
-                # Check if this job has ranked candidates
-                job_row = next((r for r in job_rows_for_dept if r["job_label"] == label), None)
-                ranked_count = job_row["ranked"] if job_row else 0
-                shortlist    = job_row["shortlist"] if job_row else 0
-
-                skills_preview = ", ".join((meta.get("required_skills") or [])[:4])
-                salary_display = meta.get("salary_stated", "Negotiable")
-                if salary_display == "Negotiable":
-                    salary_display = meta.get("salary_estimate", "Negotiable")
-
-                st.markdown(f"""
-                <div style="background:{card_bg};border:1px solid {card_bdr};
-                            border-radius:10px;padding:1rem;margin-bottom:0.8rem;">
-                    <div style="font-size:0.9rem;font-weight:600;color:{txt_col};">
-                        {meta.get('job_title', label)}
-                    </div>
-                    <div style="font-size:0.75rem;color:{sub_col};margin-top:4px;">
-                        📍 {meta.get('location','-')} &nbsp;·&nbsp;
-                        🕒 {meta.get('experience','-')} &nbsp;·&nbsp;
-                        💸 {salary_display}
-                    </div>
-                    <div style="font-size:0.72rem;color:#94A3B8;margin-top:6px;">
-                        <b>Key Skills:</b> {skills_preview}{"..." if len(meta.get('required_skills', [])) > 4 else ""}
-                    </div>
-                    <div style="font-size:0.72rem;color:#94A3B8;margin-top:6px;">
-                        {ranked_count} ranked &nbsp;·&nbsp; 📈 {shortlist} shortlisted
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                if st.button(
-                    "View Rankings" if ranked_count > 0 else "No candidates yet",
-                    key=f"role_btn_{label}",
-                    type="primary" if ranked_count > 0 else "secondary",
-                    use_container_width=True,
-                    disabled=(ranked_count == 0),
-                ):
-                    st.session_state["selected_job"]     = label
-                    st.session_state["jr_active_job"]    = label
-                    st.session_state["jr_mode"]          = "detail"
-                    st.session_state["jr_incoming_via"] = "dept"
-                    safe_switch_page("pages/2_Job_Rankings.py")
-
-    st.markdown("<hr>", unsafe_allow_html=True)
 
 
 def _render_ranked_table(df: pd.DataFrame, show_job_col: bool, unique_key: str):
@@ -821,9 +744,6 @@ for idx, dept in enumerate(dept_rows, start=1):
         # Load all candidates for this dept once (cached per interaction).
         all_df = fetch_candidates_by_department(conn, dept_name)
         jobs_in_dept = fetch_jobs_by_department(conn, dept_name)
-
-        # BDJobs open role cards for this department
-        _render_open_roles_for_dept(dept_name, jobs_in_dept, conn)
 
         # Job sub-tabs: "All Jobs" + one per job_label
         job_tab_labels = [f"All Jobs in Dept ({len(all_df)})"] + [

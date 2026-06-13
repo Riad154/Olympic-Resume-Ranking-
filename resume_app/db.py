@@ -1460,6 +1460,7 @@ def fetch_departments_with_roles(conn) -> list[dict]:
             j.department, j.job_label, j.job_title, j.status,
             j.location, j.min_experience,
             j.education_req, j.required_skills, j.created_at
+        HAVING COUNT(c.id) > 0
         ORDER BY j.department ASC, j.created_at DESC NULLS LAST
     """
     with conn.cursor() as cur:
