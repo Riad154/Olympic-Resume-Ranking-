@@ -197,17 +197,57 @@ def extract_iframe_text(page) -> str:
 
 
 def close_popup(page):
+    """Aggressively dismiss any BDJobs modal / popup / overlay.
+
+    BDJobs occasionally renders a full-screen backdrop (<div class="fixed inset-0 ...">
+    or <app-modal-container-wo-p>) that intercepts pointer events and breaks
+    subsequent clicks.  We try several dismissal strategies from gentle to
+    nuclear so the next candidate card can be interacted with.
+    """
+    # 1. Classic cross-close icon
     try:
         btn = page.query_selector("span.icon-cross-close")
         if btn:
-            btn.click()
+            btn.evaluate("el => el.click()")
             time.sleep(0.4)
             return
     except Exception:
         pass
+
+    # 2. Escape key
     try:
         page.keyboard.press("Escape")
         time.sleep(0.4)
+    except Exception:
+        pass
+
+    # 3. Click on the modal backdrop itself (many modals close on backdrop click)
+    try:
+        backdrop = page.query_selector("div.fixed.inset-0.bg-gray-800, div[class*='backdrop'], div[class*='modal-overlay']")
+        if backdrop:
+            backdrop.evaluate("el => el.click()")
+            time.sleep(0.4)
+            return
+    except Exception:
+        pass
+
+    # 4. JS-remove known modal containers from the DOM (nuclear option)
+    try:
+        page.evaluate("""() => {
+            const selectors = [
+                'app-modal-container-wo-p',
+                'app-modal-container',
+                'div[class*=\"modal-overlay\"]',
+                'div[class*=\"backdrop\"]',
+                'div.fixed.inset-0',
+                'div[z-index="99"]',
+                'div[style*="z-index: 99"]',
+            ];
+            for (const sel of selectors) {
+                document.querySelectorAll(sel).forEach(el => el.remove());
+            }
+        }""")
+        time.sleep(0.3)
     except Exception:
         pass
 
@@ -222,7 +262,10 @@ def scrape_profile_text(page, card, applicant: dict,
     name      = applicant.get("Name", "Unknown")
     safe_name = sanitize_filename(name)
 
-    # Click name button
+    # Ensure no stale modal is blocking the card
+    close_popup(page)
+
+    # Click name button (Playwright click → JS click fallback)
     try:
         name_btn = card.query_selector("button.text-base.text-left")
         if not name_btn:
@@ -231,7 +274,13 @@ def scrape_profile_text(page, card, applicant: dict,
             name_btn = card.query_selector(f'button:has-text("{first}")')
         if not name_btn:
             return "", 0, "failed_no_name_button"
-        name_btn.click()
+        # Strategy A: normal click (waits for actionability)
+        try:
+            name_btn.click(timeout=5000)
+        except Exception:
+            # Strategy B: JS click bypasses overlay interception
+            name_btn.evaluate("el => el.click()")
+            time.sleep(0.5)
     except Exception as e:
         return "", 0, f"failed_click: {e}"
 
@@ -301,6 +350,9 @@ def download_uploaded_cv(page, card, job_id: str, safe_name: str,
       4. If all button-based approaches fail, try page-level keydown(Ctrl+J)
          which many Angular apps bind to "download" actions.
     """
+    # Ensure no stale modal is blocking the card
+    close_popup(page)
+
     # ── 1. Scroll into view + hover to reveal lazy elements ───────
     try:
         card.evaluate("el => { el.scrollIntoView({block:'center'}); el.dispatchEvent(new MouseEvent('mouseover',{bubbles:true})); }")
