@@ -42,7 +42,7 @@ def _spawn_rerank(label: str, department: str, normalise: bool):
     )
     return proc, str(log_path)
 
-st.set_page_config(page_title="Settings — HR Intelligence", page_icon="⚙️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Settings — HR Intelligence", page_icon="../plc_logo_w_text.png", layout="wide", initial_sidebar_state="expanded")
 init_theme()
 st.markdown(get_css(), unsafe_allow_html=True)
 render_sidebar()
@@ -91,17 +91,15 @@ def _get_secret(key, default):
     return (os.environ.get(key, "") or "").strip() or default
 
 OLLAMA_HOST = _get_secret("OLLAMA_HOST", "http://localhost:11434")
-N8N_HOST    = _get_secret("N8N_HOST",    "http://localhost:5678")
 OLLAMA_API  = f"{OLLAMA_HOST}/api/tags"
 OLLAMA_CHAT = f"{OLLAMA_HOST}/api/chat"
-N8N_HEALTH  = f"{N8N_HOST}/healthz"
 
 with st.expander("🔍 Debug: Service URLs (click to expand)"):
     try:
         secret_keys = list(st.secrets.keys())
     except Exception as ex:
         secret_keys = [f"Error: {ex}"]
-    st.code(f"OLLAMA_HOST = {OLLAMA_HOST}\nN8N_HOST    = {N8N_HOST}\nOLLAMA_API  = {OLLAMA_API}\nN8N_HEALTH  = {N8N_HEALTH}\n\nAll secret keys: {secret_keys}")
+    st.code(f"OLLAMA_HOST = {OLLAMA_HOST}\nOLLAMA_API  = {OLLAMA_API}\n\nAll secret keys: {secret_keys}")
 
 with col1:
     if not pg_is_configured():
@@ -122,22 +120,9 @@ with col1:
     except Exception as e:
         ol_ok=False; ol_msg="Not reachable"; models=[]
 
-    try:
-        r2 = requests.get(N8N_HEALTH, timeout=5, headers=_hdrs)
-        n8_ok = r2.status_code in (200, 401, 302)
-        n8_msg = "Running" if n8_ok else f"HTTP {r2.status_code}"
-    except:
-        try:
-            r2b = requests.get(N8N_HOST, timeout=5, headers=_hdrs)
-            n8_ok = r2b.status_code in (200, 401, 302)
-            n8_msg = "Running" if n8_ok else "Not reachable"
-        except:
-            n8_ok=False; n8_msg="Not reachable"
-
     for label, ok, msg in [
         ("PostgreSQL", pg_ok, pg_msg),
         ("Ollama",     ol_ok, ol_msg),
-        ("n8n",        n8_ok, n8_msg),
     ]:
         dot = "🟢" if ok else "🔴"
         st.markdown(f"""

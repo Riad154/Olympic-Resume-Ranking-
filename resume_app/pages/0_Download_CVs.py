@@ -37,7 +37,7 @@ from db import (
 # ── Page chrome ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Download/Upload CVs — HR Intelligence",
-    page_icon="⬇️⬆️",
+    page_icon="../plc_logo_w_text.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -178,13 +178,14 @@ def _spawn_login():
     )
 
 
-def _spawn_auto_login():
+def _spawn_auto_login(conn):
     try: LOGIN_FLAG.unlink()
     except FileNotFoundError: pass
-    return _spawn(
-        [VENV_PYTHON, LOGIN_AUTO_PATH, "--wait-for-flag", str(LOGIN_FLAG), "--headless"],
-        log_name="auto_login", new_console=False,
-    )
+    cmd = [VENV_PYTHON, LOGIN_AUTO_PATH, "--wait-for-flag", str(LOGIN_FLAG), "--headless"]
+    creds = get_bdjobs_credentials(conn)
+    if creds:
+        cmd.extend(["--username", creds["username"], "--password", creds["password"]])
+    return _spawn(cmd, log_name="auto_login", new_console=False)
 
 
 def _spawn_downloader(
@@ -652,7 +653,7 @@ else:
                     "Use the **BDJobs CV Sync** form below and check '🔄 Force fresh login' to trigger it."
                 )
             else:
-                proc, lp = _spawn_auto_login()
+                proc, lp = _spawn_auto_login(conn)
                 st.session_state["bdjobs_login_proc"] = proc
                 st.session_state["bdjobs_login_log"] = lp
                 st.rerun()

@@ -15,7 +15,7 @@ from db import (
 
 st.set_page_config(
     page_title="HR Intelligence — Olympic Industries",
-    page_icon="📋",
+    page_icon="plc_logo_w_text.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
