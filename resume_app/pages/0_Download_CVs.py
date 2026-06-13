@@ -37,7 +37,7 @@ from db import (
 # ── Page chrome ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Download/Upload CVs — HR Intelligence",
-    page_icon="../plc_logo_w_text.png",
+    page_icon="../favicon.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )

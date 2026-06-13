@@ -36,7 +36,7 @@ from db import (
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Job Rankings",
-    page_icon="../plc_logo_w_text.png",
+    page_icon="../favicon.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )

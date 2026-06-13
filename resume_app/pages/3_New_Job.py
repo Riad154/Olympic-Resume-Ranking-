@@ -130,7 +130,7 @@ def _read_ranker_progress(log_path: str) -> dict:
 
 st.set_page_config(
     page_title="New Job Posting — HR Intelligence",
-    page_icon="../plc_logo_w_text.png",
+    page_icon="../favicon.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )

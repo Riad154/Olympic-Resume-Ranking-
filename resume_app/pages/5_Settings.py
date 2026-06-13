@@ -42,7 +42,7 @@ def _spawn_rerank(label: str, department: str, normalise: bool):
     )
     return proc, str(log_path)
 
-st.set_page_config(page_title="Settings — HR Intelligence", page_icon="../plc_logo_w_text.png", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Settings — HR Intelligence", page_icon="../favicon.png", layout="wide", initial_sidebar_state="expanded")
 init_theme()
 st.markdown(get_css(), unsafe_allow_html=True)
 render_sidebar()
