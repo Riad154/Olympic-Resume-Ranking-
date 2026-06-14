@@ -1772,9 +1772,6 @@ async def process_one(
 ) -> tuple[str, str, str | None]:
     """Process a single resume. Returns (apply_id, name, error_msg_or_None)."""
     stem = os.path.splitext(os.path.basename(txt_path))[0]
-    # BDJobs profiles are named `<Name>_<numeric_apply_id>.txt`.  We key on the
-    # numeric id only so rows written here match rows inserted by the Streamlit
-    # metadata ingest (which uses `apply_id` straight from the BDJobs CSV).
     m = re.search(r"(\d+)$", stem)
     apply_id = m.group(1) if m else stem
     meta     = metadata.get(apply_id, {})
@@ -1795,149 +1792,168 @@ async def process_one(
         except Exception:
             pass
 
-    async with sem:
+    # ── PREPARE: read files outside semaphore so GPU never waits on I/O ───
+    try:
+        def _read_txt():
+            with open(txt_path, encoding="utf-8", errors="replace") as f:
+                return f.read()
+        profile_text = await asyncio.to_thread(_read_txt)
+
+        _profile_stripped = profile_text.strip() if profile_text else ""
+        if len(_profile_stripped) < 150:
+            raise ValueError(
+                f"EMPTY_PROFILE: Profile text is only {len(_profile_stripped)} chars "
+                f"(minimum 150 required). "
+                f"The resume text file may be empty, corrupted, or from a scanned PDF. "
+                f"File: {txt_path}"
+            )
+        profile_text = _profile_stripped   # use stripped version
+
+        pdf_text = ""
+        pdf_text_chars = 0
+        if pdf_path and os.path.exists(pdf_path):
+            pdf_text = await asyncio.to_thread(extract_pdf_text, pdf_path)
+            pdf_text_chars = len(pdf_text) if pdf_text else 0
+    except Exception as e:
+        err_msg = str(e)
+        err_type = classify_error(err_msg, fallback_attempted=False)
         try:
-            # Load profile text
-            def _read_txt():
-                with open(txt_path, encoding="utf-8", errors="replace") as f:
-                    return f.read()
-            profile_text = await asyncio.to_thread(_read_txt)
+            async with db_lock:
+                def _write_err():
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    with conn.cursor() as cur:
+                        upsert_error(cur, job, apply_id, name, txt_path, err_msg)
+                    conn.commit()
+                    state["pending"] = 0
+                await asyncio.to_thread(_write_err)
+        except Exception:
+            pass
+        await write_progress_async(log_lock, log_path, {
+            "event":    "error",
+            "apply_id": apply_id,
+            "name":     name,
+            "error":    err_msg[:200],
+            "error_type": err_type,
+            "fallback": False,
+        })
+        tqdm.write(f"  ERR {apply_id} | {name[:30]} | {err_type} | {err_msg[:60]}")
+        return apply_id, name, err_msg
 
-            # Guard: minimum profile length
-            _profile_stripped = profile_text.strip() if profile_text else ""
-            if len(_profile_stripped) < 150:
-                raise ValueError(
-                    f"EMPTY_PROFILE: Profile text is only {len(_profile_stripped)} chars "
-                    f"(minimum 150 required). "
-                    f"The resume text file may be empty, corrupted, or from a scanned PDF. "
-                    f"File: {txt_path}"
-                )
-            profile_text = _profile_stripped   # use stripped version
-
-            pdf_text = ""
-            pdf_text_chars = 0
-            if pdf_path and os.path.exists(pdf_path):
-                pdf_text = await asyncio.to_thread(extract_pdf_text, pdf_path)
-                pdf_text_chars = len(pdf_text) if pdf_text else 0
-
+    # ── OLLAMA: semaphore only guards the GPU call ─────────────────────────
+    try:
+        async with sem:
             raw = await call_ollama_async(
                 session, profile_text, pdf_text, job, jd_text, job_config,
             )
-            scores = validate_score(raw)
-            # Verdict normalisation: collapse free-text LLM outputs to canonical ternary
-            scores["recommendation"] = normalize_verdict(scores.get("recommendation"))
-            # Deterministic weighted education_score from the three sub-scores
-            # (BUG-03). Must run BEFORE compute_overall_score because overall
-            # consumes education_score as one of its inputs.
-            scores["education_score"] = compute_education_score(scores)
-            # Deterministic weighted overall_score (overrides any value from LLM)
-            scores["overall_score"]   = compute_overall_score(scores, job_config)
-            # Deterministic recommendation from overall_score (fixes LLM conservatism)
-            scores["recommendation"]  = _score_to_recommendation(scores["overall_score"])
+    except Exception as e:
+        err_msg = str(e)
+        err_type = classify_error(err_msg, fallback_attempted=False)
+        fallback_used = False
 
-            # DB write under lock; batch commits
-            async with db_lock:
-                def _write():
-                    with conn.cursor() as cur:
-                        upsert_candidate(
-                            cur, job, apply_id, name, txt_path,
-                            pdf_path, pdf_text_chars, jd_used_label, scores,
-                        )
-                    state["pending"] += 1
-                    if state["pending"] >= COMMIT_BATCH_SIZE:
-                        conn.commit()
-                        state["pending"] = 0
-                await asyncio.to_thread(_write)
-                # Force immediate commit for single-candidate re-ranks
-                if state.get("force_commit"):
-                    conn.commit()
-                    state["pending"] = 0
-
-            await write_progress_async(log_lock, log_path, {
-                "event":          "ok",
-                "apply_id":       apply_id,
-                "name":           name,
-                "score":          scores["overall_score"],
-                "recommendation": scores["recommendation"],
-            })
-            tqdm.write(f"  OK  {apply_id} | {name[:30]} | {scores['overall_score']} | {scores['recommendation']}")
-            return apply_id, name, None
-
-        except Exception as e:
-            err_msg = str(e)
-            err_type = classify_error(err_msg, fallback_attempted=False)
-            fallback_used = False
-
-            # ── Fallback path: if the full prompt failed (usually context overflow
-            # or truncation), try a drastically shorter prompt with no PDF text,
-            # no education sub-scores, and no strengths/gaps.
-            if "timeout" not in err_msg.lower() and "connection" not in err_msg.lower():
-                try:
-                    tqdm.write(f"  RTRY {apply_id} | {name[:30]} | fallback prompt")
+        # Fallback path
+        if "timeout" not in err_msg.lower() and "connection" not in err_msg.lower():
+            try:
+                tqdm.write(f"  RTRY {apply_id} | {name[:30]} | fallback prompt")
+                async with sem:
                     raw_fb = await call_ollama_async(
                         session, profile_text, "", job, "", job_config,
                         retries=2, use_fallback=True,
                     )
-                    scores = validate_score(raw_fb)
-                    # Verdict normalisation: collapse free-text LLM outputs to canonical ternary
-                    scores["recommendation"] = normalize_verdict(scores.get("recommendation"))
-                    scores["education_score"] = compute_education_score(scores)
-                    scores["overall_score"]   = compute_overall_score(scores, job_config)
-                    scores["recommendation"]  = _score_to_recommendation(scores["overall_score"])
-                    async with db_lock:
-                        def _write_fb():
-                            with conn.cursor() as cur:
-                                upsert_candidate(
-                                    cur, job, apply_id, name, txt_path,
-                                    pdf_path, pdf_text_chars, jd_used_label, scores,
-                                )
-                            state["pending"] += 1
-                            if state["pending"] >= COMMIT_BATCH_SIZE:
-                                conn.commit()
-                                state["pending"] = 0
-                        await asyncio.to_thread(_write_fb)
-                        if state.get("force_commit"):
+                scores = validate_score(raw_fb)
+                scores["recommendation"] = normalize_verdict(scores.get("recommendation"))
+                scores["education_score"] = compute_education_score(scores)
+                scores["overall_score"]   = compute_overall_score(scores, job_config)
+                scores["recommendation"]  = _score_to_recommendation(scores["overall_score"])
+                async with db_lock:
+                    def _write_fb():
+                        with conn.cursor() as cur:
+                            upsert_candidate(
+                                cur, job, apply_id, name, txt_path,
+                                pdf_path, pdf_text_chars, jd_used_label, scores,
+                            )
+                        state["pending"] += 1
+                        if state["pending"] >= COMMIT_BATCH_SIZE:
                             conn.commit()
                             state["pending"] = 0
-                    await write_progress_async(log_lock, log_path, {
-                        "event":          "ok_fallback",
-                        "apply_id":       apply_id,
-                        "name":           name,
-                        "score":          scores["overall_score"],
-                        "recommendation": scores["recommendation"],
-                    })
-                    tqdm.write(f"  OK* {apply_id} | {name[:30]} | {scores['overall_score']} | fallback")
-                    return apply_id, name, None
-                except Exception as e2:
-                    err_msg = str(e2)
-                    err_type = classify_error(err_msg, fallback_attempted=True)
-                    fallback_used = True
-
-            # ── Permanent failure — write structured error to DB
-            try:
-                async with db_lock:
-                    def _write_err():
-                        try:
-                            conn.rollback()
-                        except Exception:
-                            pass
-                        with conn.cursor() as cur:
-                            upsert_error(cur, job, apply_id, name, txt_path, err_msg)
+                    await asyncio.to_thread(_write_fb)
+                    if state.get("force_commit"):
                         conn.commit()
                         state["pending"] = 0
-                    await asyncio.to_thread(_write_err)
-            except Exception:
-                pass
-            await write_progress_async(log_lock, log_path, {
-                "event":    "error",
-                "apply_id": apply_id,
-                "name":     name,
-                "error":    err_msg[:200],
-                "error_type": err_type,
-                "fallback": fallback_used,
-            })
-            tqdm.write(f"  ERR {apply_id} | {name[:30]} | {err_type} | {err_msg[:60]}")
-            return apply_id, name, err_msg
+                await write_progress_async(log_lock, log_path, {
+                    "event":          "ok_fallback",
+                    "apply_id":       apply_id,
+                    "name":           name,
+                    "score":          scores["overall_score"],
+                    "recommendation": scores["recommendation"],
+                })
+                tqdm.write(f"  OK* {apply_id} | {name[:30]} | {scores['overall_score']} | fallback")
+                return apply_id, name, None
+            except Exception as e2:
+                err_msg = str(e2)
+                err_type = classify_error(err_msg, fallback_attempted=True)
+                fallback_used = True
+
+        # Permanent failure
+        try:
+            async with db_lock:
+                def _write_err():
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    with conn.cursor() as cur:
+                        upsert_error(cur, job, apply_id, name, txt_path, err_msg)
+                    conn.commit()
+                    state["pending"] = 0
+                await asyncio.to_thread(_write_err)
+        except Exception:
+            pass
+        await write_progress_async(log_lock, log_path, {
+            "event":    "error",
+            "apply_id": apply_id,
+            "name":     name,
+            "error":    err_msg[:200],
+            "error_type": err_type,
+            "fallback": fallback_used,
+        })
+        tqdm.write(f"  ERR {apply_id} | {name[:30]} | {err_type} | {err_msg[:60]}")
+        return apply_id, name, err_msg
+
+    # ── POST-PROCESS: validation & DB write outside semaphore ─────────────
+    scores = validate_score(raw)
+    scores["recommendation"] = normalize_verdict(scores.get("recommendation"))
+    scores["education_score"] = compute_education_score(scores)
+    scores["overall_score"]   = compute_overall_score(scores, job_config)
+    scores["recommendation"]  = _score_to_recommendation(scores["overall_score"])
+
+    async with db_lock:
+        def _write():
+            with conn.cursor() as cur:
+                upsert_candidate(
+                    cur, job, apply_id, name, txt_path,
+                    pdf_path, pdf_text_chars, jd_used_label, scores,
+                )
+            state["pending"] += 1
+            if state["pending"] >= COMMIT_BATCH_SIZE:
+                conn.commit()
+                state["pending"] = 0
+        await asyncio.to_thread(_write)
+        if state.get("force_commit"):
+            conn.commit()
+            state["pending"] = 0
+
+    await write_progress_async(log_lock, log_path, {
+        "event":          "ok",
+        "apply_id":       apply_id,
+        "name":           name,
+        "score":          scores["overall_score"],
+        "recommendation": scores["recommendation"],
+    })
+    tqdm.write(f"  OK  {apply_id} | {name[:30]} | {scores['overall_score']} | {scores['recommendation']}")
+    return apply_id, name, None
 
 
 def generate_error_report(

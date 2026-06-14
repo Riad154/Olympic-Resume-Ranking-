@@ -23,12 +23,18 @@ DEFAULT_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b-q4_K_M")
 
 def _check_env_vars() -> None:
     par = os.environ.get("OLLAMA_NUM_PARALLEL")
+    workers = int(os.environ.get("RANKER_WORKERS", "5"))
     if not par:
         print("[HINT] OLLAMA_NUM_PARALLEL is not set.")
         print("       Set it to allow concurrent request processing:")
-        print("       Windows: setx OLLAMA_NUM_PARALLEL 5  (then restart Ollama)")
+        print(f"       Windows: setx OLLAMA_NUM_PARALLEL {workers}  (then restart Ollama)")
     else:
         print(f"[ENV]  OLLAMA_NUM_PARALLEL={par}")
+        if int(par) < workers:
+            print(f"[WARN] OLLAMA_NUM_PARALLEL ({par}) < RANKER_WORKERS ({workers}).")
+            print("       GPU will be under-utilized because Ollama cannot queue enough")
+            print("       concurrent requests. Increase OLLAMA_NUM_PARALLEL or reduce")
+            print("       RANKER_WORKERS to match.")
 
     mlm = os.environ.get("OLLAMA_MAX_LOADED_MODELS")
     if not mlm:
