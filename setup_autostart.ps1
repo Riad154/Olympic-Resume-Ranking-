@@ -12,9 +12,14 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 $TaskName = "ResumeRankingHRApp"
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-WindowStyle Hidden -Command "cd F:\Projects\resume_ranking; python -m streamlit run resume_app/Home.py --server.address 0.0.0.0 --server.port 8502"'
+$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-ExecutionPolicy Bypass -WindowStyle Hidden -File "F:\Projects\resume_ranking\resume_app\start_app.ps1"'
 $Trigger = New-ScheduledTaskTrigger -AtLogOn
-$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+$Settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -RestartCount 999 `
+    -RestartInterval (New-TimeSpan -Minutes 1)
 $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERNAME" -LogonType Interactive -RunLevel Highest
 
 try {
@@ -26,12 +31,17 @@ try {
     
     Write-Host "Auto-start task created successfully!" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Task Name: $TaskName" -ForegroundColor White
-    Write-Host "Trigger: When user logs on" -ForegroundColor White
-    Write-Host "Command: Streamlit on port 8502" -ForegroundColor White
+    Write-Host "Task Name : $TaskName" -ForegroundColor White
+    Write-Host "Trigger   : When user logs on" -ForegroundColor White
+    Write-Host "Behavior  : Watchdog auto-restarts Streamlit if it crashes" -ForegroundColor White
+    Write-Host "Port      : 8502" -ForegroundColor White
     Write-Host ""
-    Write-Host "To test: Restart your PC and the app will auto-start." -ForegroundColor Yellow
-    Write-Host "To manage: Open Task Scheduler and look for '$TaskName'" -ForegroundColor Gray
+    Write-Host "Manual start : Double-click start_now.ps1" -ForegroundColor Yellow
+    Write-Host "Manual stop  : Double-click stop_app.ps1" -ForegroundColor Yellow
+    Write-Host "Logs         : F:\Projects\resume_ranking\_service_logs\" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "To test auto-start: Restart your PC." -ForegroundColor Yellow
+    Write-Host "To manage task     : Open Task Scheduler -> '$TaskName'" -ForegroundColor Gray
 } catch {
     Write-Host "ERROR creating task: $_" -ForegroundColor Red
     exit 1
