@@ -337,6 +337,22 @@ def ollama_ps() -> list[dict] | None:
         return None
 
 
+def _find_ranker_pid(job_label: str) -> int | None:
+    """Find PID of a running ranker.py process for the given job label."""
+    try:
+        import psutil
+        for proc in psutil.process_iter(["pid", "cmdline"]):
+            try:
+                cmdline = proc.info.get("cmdline") or []
+                if any("ranker.py" in str(a) for a in cmdline) and any(job_label in str(a) for a in cmdline):
+                    return proc.info["pid"]
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 # ── Sidebar (local only) ────────────────────────────────────────────────────
 
 jobs = list_job_folders()
@@ -363,6 +379,55 @@ with st.sidebar:
     else:
         auto_refresh = st.checkbox("Auto-refresh (3s)", value=True)
     refresh_now = st.button("Refresh now")
+
+    # ── Cancel Ranker ─────────────────────────────────────────────────────────
+    if _progress_path.exists() and not _peek_done:
+        st.markdown(
+            '<hr style="border-color:rgba(255,255,255,0.2);margin:0.8rem 0;">',
+            unsafe_allow_html=True,
+        )
+        cancel_key = f"cancel_ranker_{selected}"
+        confirm_key = f"confirm_cancel_{selected}"
+        if st.button("🛑 Cancel Ranker", type="primary", use_container_width=True, key=cancel_key):
+            st.session_state[confirm_key] = True
+            st.rerun()
+        if st.session_state.get(confirm_key):
+            st.error("⚠️ This will delete ALL candidate data for this job. Are you sure?")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("✅ Yes, Cancel & Delete", type="primary", use_container_width=True, key=f"yes_{cancel_key}"):
+                    # 1. Kill process
+                    pid = _find_ranker_pid(selected)
+                    if pid:
+                        try:
+                            import psutil
+                            parent = psutil.Process(pid)
+                            for child in parent.children(recursive=True):
+                                child.terminate()
+                            parent.terminate()
+                        except Exception:
+                            pass
+                    # 2. Clear DB
+                    try:
+                        sys.path.insert(0, str(BASE_DIR / "resume_app"))
+                        from db import clear_job_candidates, update_job_status
+                        deleted = clear_job_candidates(selected)
+                        update_job_status(selected, "Cancelled")
+                        st.success(f"✓ Removed {deleted} candidate(s).")
+                    except Exception as e:
+                        st.error(f"DB cleanup failed: {e}")
+                    # 3. Delete progress file
+                    try:
+                        _progress_path.unlink()
+                    except Exception:
+                        pass
+                    st.session_state.pop(confirm_key, None)
+                    time.sleep(0.5)
+                    st.rerun()
+            with c2:
+                if st.button("No, Keep Running", type="secondary", use_container_width=True, key=f"no_{cancel_key}"):
+                    st.session_state.pop(confirm_key, None)
+                    st.rerun()
 
 events = _peek_events
 

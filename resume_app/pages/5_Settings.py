@@ -12,11 +12,13 @@ import psycopg2
 import streamlit as st
 from db import (
     get_conn, get_css, init_theme, render_sidebar, PG_CONN, pg_is_configured, FAVICON,
-    fetch_all_jobs, get_job_department, update_job_status,
+    fetch_all_jobs, fetch_job, get_job_department, update_job_status, update_job,
     fix_inconsistent_verdicts, associate_candidates_with_job,
     get_bdjobs_credentials, save_bdjobs_credentials,
     BDJOBS_JOB_REGISTRY,
-    RANKER_PATH, VENV_PYTHON,
+    DEPARTMENTS, EXPERIENCE_OPTIONS, EDUCATION_OPTIONS,
+    COMMON_SKILLS, RED_FLAG_PRESETS,
+    RESUMES_BASE, RANKER_PATH, VENV_PYTHON,
 )
 
 # FEAT-04: re-rank job spawner. Mirrors _spawn_ranker in pages/3_New_Job.py.
@@ -268,8 +270,8 @@ st.markdown(
     f'<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">Re-rank a Job</div>',
     unsafe_allow_html=True,
 )
-st.caption("Re-sends every candidate for the selected job through the AI scorer. "
-           "Useful after changing scoring weights, switching the LLM model, or updating department profiles.")
+st.caption("Modify job parameters and re-send every candidate through the AI scorer."
+           " Useful after changing scoring weights, JD, or skill requirements.")
 
 try:
     _conn_rr   = get_conn()
@@ -294,26 +296,134 @@ else:
             help="Run percentile rescaling pass after ranking completes.",
         )
 
-    if st.button("🔄  Start Re-rank", type="primary"):
-        try:
-            dept = get_job_department(_conn_rr, rerank_job) or ""
-            proc, log_path = _spawn_rerank(rerank_job, dept, normalise)
+    # Load current job config and pre-populate form keys
+    job_cfg = fetch_job(_conn_rr, rerank_job) if rerank_job else {}
+    if st.session_state.get("_last_rerank_job") != rerank_job:
+        st.session_state["rr_title"]     = job_cfg.get("job_title") or ""
+        st.session_state["rr_dept"]      = job_cfg.get("department") or (DEPARTMENTS[0] if DEPARTMENTS else "")
+        st.session_state["rr_jd"]        = job_cfg.get("jd_text") or ""
+        st.session_state["rr_min_exp"]   = job_cfg.get("min_experience") or "Any"
+        st.session_state["rr_edu"]       = job_cfg.get("education_req") or "Any"
+        # skills / flags may be list or None
+        _skills = job_cfg.get("required_skills")
+        st.session_state["rr_skills"]    = list(_skills) if _skills else []
+        _flags  = job_cfg.get("red_flags")
+        st.session_state["rr_flags"]     = list(_flags) if _flags else []
+        st.session_state["rr_notes"]     = job_cfg.get("interviewer_notes") or ""
+        st.session_state["rr_w_skills"]   = int(job_cfg.get("weight_skills") or 50)
+        st.session_state["rr_w_exp"]      = int(job_cfg.get("weight_exp")    or 30)
+        st.session_state["rr_w_edu"]      = int(job_cfg.get("weight_edu")    or 10)
+        st.session_state["rr_w_lead"]    = int(job_cfg.get("weight_leadership") or 10)
+        st.session_state["rr_w_cult"]     = int(job_cfg.get("weight_culture")    or 5)
+        st.session_state["_last_rerank_job"] = rerank_job
+
+    with st.expander("✏️ Edit Job Parameters Before Re-ranking", expanded=True):
+        rr_title = st.text_input("Job Title", key="rr_title")
+        rr_dept  = st.selectbox("Department", [""] + DEPARTMENTS, key="rr_dept")
+        rr_jd    = st.text_area("Job Description", height=120, key="rr_jd")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            rr_min_exp = st.selectbox("Minimum Experience", EXPERIENCE_OPTIONS, key="rr_min_exp")
+        with c2:
+            rr_edu = st.selectbox("Education Requirement", EDUCATION_OPTIONS, key="rr_edu")
+
+        rr_skills = st.multiselect("Required Skills", COMMON_SKILLS, key="rr_skills")
+        rr_flags  = st.multiselect("Red Flags", RED_FLAG_PRESETS, key="rr_flags")
+        rr_notes  = st.text_area("Interviewer Notes", height=60, key="rr_notes")
+
+        st.markdown("**Scoring Weights**")
+        w1, w2, w3 = st.columns(3)
+        with w1:
+            rr_w_skills = st.slider("Skills", 0, 100, key="rr_w_skills")
+        with w2:
+            rr_w_exp = st.slider("Experience", 0, 100, key="rr_w_exp")
+        with w3:
+            rr_w_edu = st.slider("Education", 0, 100, key="rr_w_edu")
+        w4, w5 = st.columns(2)
+        with w4:
+            rr_w_lead = st.slider("Leadership", 0, 100, key="rr_w_lead")
+        with w5:
+            rr_w_cult = st.slider("Culture Fit", 0, 100, key="rr_w_cult")
+
+        total_w = rr_w_skills + rr_w_exp + rr_w_edu + rr_w_lead + rr_w_cult
+        if total_w != 100:
+            st.warning(f"Weights total {total_w}% — must equal 100%.")
+        else:
+            st.success("✓ Weights sum to 100%")
+
+    # Action buttons
+    btn_col1, btn_col2 = st.columns(2)
+    with btn_col1:
+        if st.button("💾 Save Changes Only", type="secondary", use_container_width=True):
             try:
-                update_job_status(rerank_job, "Processing")
-            except Exception:
-                pass
-            st.session_state["rerank_pid"] = proc.pid
-            st.success(
-                f"✓ Re-rank started for **{rerank_job}** (PID {proc.pid}). "
-                f"Log: `{log_path}`"
-            )
-            st.markdown(
-                "Open the **Processing Status** page to monitor live progress."
-            )
-            st.page_link("pages/4_Processing_Status.py",
-                         label="⏳  Open Processing Status →")
-        except Exception as e:
-            st.error(f"Failed to start re-rank: {e}")
+                update_job({
+                    "job_label": rerank_job,
+                    "job_title": rr_title,
+                    "department": rr_dept,
+                    "jd_text": rr_jd,
+                    "required_skills": rr_skills,
+                    "red_flags": rr_flags,
+                    "min_experience": rr_min_exp,
+                    "education_req": rr_edu,
+                    "weight_skills": rr_w_skills,
+                    "weight_exp": rr_w_exp,
+                    "weight_edu": rr_w_edu,
+                    "weight_leadership": rr_w_lead,
+                    "weight_culture": rr_w_cult,
+                    "interviewer_notes": rr_notes,
+                })
+                st.success("✓ Job parameters updated.")
+            except Exception as e:
+                st.error(f"Failed to save: {e}")
+
+    with btn_col2:
+        if st.button("🔄 Update & Start Re-rank", type="primary", use_container_width=True,
+                     disabled=(total_w != 100)):
+            try:
+                # 1. Update job record
+                update_job({
+                    "job_label": rerank_job,
+                    "job_title": rr_title,
+                    "department": rr_dept,
+                    "jd_text": rr_jd,
+                    "required_skills": rr_skills,
+                    "red_flags": rr_flags,
+                    "min_experience": rr_min_exp,
+                    "education_req": rr_edu,
+                    "weight_skills": rr_w_skills,
+                    "weight_exp": rr_w_exp,
+                    "weight_edu": rr_w_edu,
+                    "weight_leadership": rr_w_lead,
+                    "weight_culture": rr_w_cult,
+                    "interviewer_notes": rr_notes,
+                })
+                # 2. Write updated JD file for ranker
+                jd_file = os.path.join(RESUMES_BASE, rerank_job, "_jd_prompt.txt")
+                with open(jd_file, "w", encoding="utf-8") as f:
+                    if rr_jd:
+                        f.write(rr_jd + "\n\n")
+                    if rr_skills:
+                        f.write("Required Skills: " + ", ".join(rr_skills) + "\n")
+                    if rr_flags:
+                        f.write("Watch for: " + ", ".join(rr_flags) + "\n")
+                    if rr_notes:
+                        f.write("\nAdditional Notes:\n" + rr_notes + "\n")
+                # 3. Spawn re-ranker
+                proc, log_path = _spawn_rerank(rerank_job, rr_dept or "", normalise)
+                try:
+                    update_job_status(rerank_job, "Processing")
+                except Exception:
+                    pass
+                st.session_state["rerank_pid"] = proc.pid
+                st.success(
+                    f"✓ Re-rank started for **{rerank_job}** (PID {proc.pid}). "
+                    f"Log: `{log_path}`"
+                )
+                st.page_link("pages/4_Processing_Status.py",
+                             label="⏳  Open Processing Status →")
+            except Exception as e:
+                st.error(f"Failed to start re-rank: {e}")
 
 st.markdown('<hr class="divider" style="border-top:1px solid ' + card_bdr + '">', unsafe_allow_html=True)
 st.markdown(f'<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">Scoring Schema</div>', unsafe_allow_html=True)

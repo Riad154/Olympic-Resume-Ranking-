@@ -1722,6 +1722,41 @@ def create_job(job_data: dict):
     conn.close()
 
 
+def update_job(job_data: dict):
+    """Update an existing job's parameters without touching status or timestamps."""
+    conn = fresh_conn()
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE jobs SET
+                job_title         = %s,
+                department        = %s,
+                jd_text           = %s,
+                required_skills   = %s,
+                red_flags         = %s,
+                min_experience    = %s,
+                education_req     = %s,
+                weight_skills     = %s,
+                weight_exp        = %s,
+                weight_edu        = %s,
+                weight_leadership = %s,
+                weight_culture    = %s,
+                interviewer_notes = %s,
+                updated_at        = NOW()
+            WHERE job_label = %s
+        """, (
+            job_data["job_title"],       job_data["department"],
+            job_data["jd_text"],         job_data["required_skills"],
+            job_data["red_flags"],       job_data["min_experience"],
+            job_data["education_req"],   job_data["weight_skills"],
+            job_data["weight_exp"],      job_data["weight_edu"],
+            job_data.get("weight_leadership", 10),
+            job_data.get("weight_culture",    5),
+            job_data["interviewer_notes"],
+            job_data["job_label"],
+        ))
+    conn.close()
+
+
 def update_job_status(job_label: str, status: str):
     conn = fresh_conn()
     with conn.cursor() as cur:
@@ -1808,6 +1843,29 @@ def delete_candidates_bulk(job_label: str, apply_ids: list[str]) -> int:
             cur.execute(
                 "DELETE FROM candidates WHERE job_label=%s AND apply_id = ANY(%s)",
                 (job_label, apply_ids),
+            )
+            deleted = cur.rowcount
+        return deleted
+    finally:
+        conn.close()
+
+
+def clear_job_candidates(job_label: str) -> int:
+    """Delete ALL candidates (ranked or not) for a job. Also removes audit logs.
+    Returns count deleted."""
+    conn = fresh_conn()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "DELETE FROM hr_audit_log WHERE job_label = %s",
+                    (job_label,),
+                )
+            except Exception:
+                pass
+            cur.execute(
+                "DELETE FROM candidates WHERE job_label = %s",
+                (job_label,),
             )
             deleted = cur.rowcount
         return deleted

@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from db import (
     render_sidebar, safe_switch_page,
-    get_conn, create_job, ingest_metadata, update_job_status,
+    get_conn, create_job, ingest_metadata, update_job_status, clear_job_candidates,
     get_css, init_theme, build_prompt_preview, FAVICON,
     DEPARTMENTS, EXPERIENCE_OPTIONS, EDUCATION_OPTIONS,
     COMMON_SKILLS, SKILL_DOMAINS, RED_FLAG_PRESETS, RESUMES_BASE, RANKER_PATH, VENV_PYTHON,
@@ -690,7 +690,7 @@ if submit_clicked:
                 ctrl_col1, ctrl_col2, ctrl_col3 = st.columns(3)
                 
                 with ctrl_col1:
-                    if st.button("🛑 Stop Ranker", type="secondary", key=f"stop_{job_label}", use_container_width=True):
+                    if st.button("🛑 Stop & Clean Up", type="secondary", key=f"stop_{job_label}", use_container_width=True):
                         try:
                             import psutil
                             parent = psutil.Process(proc.pid)
@@ -699,9 +699,22 @@ if submit_clicked:
                             parent.terminate()
                             st.session_state[f"ranker_{job_label}_status"] = "stopped"
                             st.warning("Ranker stopped by user.")
-                            st.rerun()
                         except Exception as e:
-                            st.error(f"Failed to stop: {e}")
+                            st.error(f"Failed to stop process: {e}")
+                        # Clean up data (delete candidates + progress file)
+                        try:
+                            deleted = clear_job_candidates(job_label)
+                            update_job_status(job_label, "Cancelled")
+                            st.success(f"✓ Removed {deleted} candidate(s) from database.")
+                        except Exception as e:
+                            st.error(f"DB cleanup failed: {e}")
+                        try:
+                            _prog = Path(RESUMES_BASE) / job_label / "_ranker_progress.jsonl"
+                            if _prog.exists():
+                                _prog.unlink()
+                        except Exception:
+                            pass
+                        st.rerun()
                 
                 with ctrl_col2:
                     if st.button("🔄 Refresh Status", type="secondary", key=f"refresh_{job_label}", use_container_width=True):
