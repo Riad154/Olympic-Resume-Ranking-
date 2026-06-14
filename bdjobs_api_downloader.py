@@ -19,6 +19,7 @@ Environment:
 """
 
 import argparse
+import base64
 import csv
 import json
 import os
@@ -68,6 +69,23 @@ def _load_session(path: str = SESSION_FILE) -> dict | None:
 def _save_session(data: dict, path: str = SESSION_FILE) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
+
+def _decode_jwt_payload(token: str) -> dict:
+    """Decode the payload section of a JWT (no signature verification)."""
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return {}
+        payload_b64 = parts[1]
+        # Pad to multiple of 4
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += "=" * padding
+        payload_json = base64.urlsafe_b64decode(payload_b64).decode("utf-8")
+        return json.loads(payload_json)
+    except Exception:
+        return {}
 
 
 def sanitize_filename(name: str) -> str:
@@ -219,30 +237,46 @@ class BDJobsAPIClient:
         if not token:
             raise RuntimeError(f"Login failed: no token found. Response preview: {raw_preview[:500]}")
         print(f"[OK] JWT obtained (len={len(token)})", flush=True)
-        # fetch company info
-        client = cls(token=token, encrypt_id=encrypt_id)
-        client._fetch_company_info()
+
+        # Extract CompanyId directly from JWT payload (reliable) — SupportingData HTML is a fallback
+        jwt_claims = _decode_jwt_payload(token)
+        company_id_from_jwt = jwt_claims.get("CompanyId") or jwt_claims.get("companyId")
+        if company_id_from_jwt:
+            print(f"[OK] CompanyId extracted from JWT: {company_id_from_jwt}", flush=True)
+
+        client = cls(token=token, company_id=company_id_from_jwt, encrypt_id=encrypt_id)
+        # If JWT didn't have it, try the HTML fallback
+        if not client.company_id:
+            client._fetch_company_info()
         return client
 
     def _fetch_company_info(self) -> None:
-        """Call SupportingData to get ComID (company cookie value)."""
+        """Call SupportingData to get ComID (company cookie value).
+        This is a fallback — the primary source is the JWT payload."""
         if not self.encrypt_id:
             print("[WARN] No encryptId, cannot fetch company info", flush=True)
             return
         url = f"{SUPPORT_URL}?ComUsrAcc={quote(self.encrypt_id)}"
-        print(f"[INFO] Fetching company info …", flush=True)
+        print(f"[INFO] Fetching company info (fallback) …", flush=True)
         try:
             r = self.session.get(url, timeout=30)
             print(f"[DEBUG] SupportingData HTTP {r.status_code}", flush=True)
             # Response is HTML with inline script setting cookies
             html = r.text
-            # Extract ComNo from the HTML
-            m = re.search(r"ComNo=([^&;'\"\s]+)", html)
-            if m:
-                self.company_id = m.group(1)
-                print(f"[OK] CompanyId = {self.company_id}", flush=True)
-            else:
-                print("[WARN] Could not extract ComNo from SupportingData", flush=True)
+            # Try multiple patterns for ComNo extraction
+            patterns = [
+                r'"ComNo":"([^"]+)"',
+                r'"ComNo": "([^"]+)"',
+                r"ComNo=([^&;'\"\s]+)",
+                r'ComNo\\u003d([^&;\'\"\s]+)',
+            ]
+            for pat in patterns:
+                m = re.search(pat, html)
+                if m:
+                    self.company_id = m.group(1)
+                    print(f"[OK] CompanyId = {self.company_id} (from HTML)", flush=True)
+                    return
+            print("[WARN] Could not extract ComNo from SupportingData", flush=True)
         except Exception as e:
             print(f"[WARN] Failed to fetch company info: {e}", flush=True)
 
