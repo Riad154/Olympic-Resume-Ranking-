@@ -114,13 +114,21 @@ with col1:
             pg_ok=False; pg_msg=str(e)[:60]
 
     _hdrs = {"ngrok-skip-browser-warning": "true", "User-Agent": "StreamlitHealthCheck/1.0"}
+    # ── Health check: installed models (tags) ───────────────────────────────
     try:
         r = requests.get(OLLAMA_API, timeout=5, headers=_hdrs)
-        ol_ok = r.status_code==200
-        models = [m["name"] for m in r.json().get("models",[])] if ol_ok else []
-        ol_msg = f"{len(models)} model(s) loaded" if ol_ok else f"HTTP {r.status_code}"
+        ol_ok = r.status_code == 200
+        installed_models = [m["name"] for m in r.json().get("models", [])] if ol_ok else []
+        ol_msg = f"{len(installed_models)} model(s) installed" if ol_ok else f"HTTP {r.status_code}"
     except Exception as e:
-        ol_ok=False; ol_msg="Not reachable"; models=[]
+        ol_ok = False; ol_msg = "Not reachable"; installed_models = []
+
+    # ── Loaded models check: /api/ps (actually in VRAM) ───────────────────
+    try:
+        r_ps = requests.get(f"{OLLAMA_HOST}/api/ps", timeout=5, headers=_hdrs)
+        loaded_models = [m["name"] for m in r_ps.json().get("models", [])] if r_ps.status_code == 200 else []
+    except Exception:
+        loaded_models = []
 
     for label, ok, msg in [
         ("PostgreSQL", pg_ok, pg_msg),
@@ -138,8 +146,8 @@ with col1:
 
 with col2:
     st.markdown(f'<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">Loaded Models</div>', unsafe_allow_html=True)
-    if models:
-        for m in models:
+    if loaded_models:
+        for m in loaded_models:
             active = "qwen3:8b" in m
             st.markdown(f"""
                 <div style="background:{card_bg};border:1px solid {'#FECACA' if active else card_bdr};
@@ -152,7 +160,7 @@ with col2:
                 </div>
             """, unsafe_allow_html=True)
     else:
-        st.warning("No models loaded. Is Ollama running?")
+        st.info("No models currently loaded (will load on first request).")
 
     if ol_ok:
         st.markdown("<br>", unsafe_allow_html=True)
