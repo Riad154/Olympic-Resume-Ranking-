@@ -47,9 +47,10 @@ render_sidebar()
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 PROJECT_ROOT    = Path(__file__).resolve().parent.parent.parent
-DOWNLOADER_PATH = str(PROJECT_ROOT / "bdjobs_downloader.py")
-LOGIN_PATH      = str(PROJECT_ROOT / "bdjobs_login.py")
-LOGIN_AUTO_PATH = str(PROJECT_ROOT / "bdjobs_auto_login.py")
+DOWNLOADER_PATH     = str(PROJECT_ROOT / "bdjobs_downloader.py")
+API_DOWNLOADER_PATH = str(PROJECT_ROOT / "bdjobs_api_downloader.py")
+LOGIN_PATH          = str(PROJECT_ROOT / "bdjobs_login.py")
+LOGIN_AUTO_PATH     = str(PROJECT_ROOT / "bdjobs_auto_login.py")
 SESSION_DIR     = PROJECT_ROOT / "bdjobs_session"
 LOG_DIR         = PROJECT_ROOT / "_dl_logs"
 LOG_DIR.mkdir(exist_ok=True)
@@ -213,6 +214,39 @@ def _spawn_downloader(
     return _spawn(
         cmd,
         log_name=f"dl_{label}", new_console=False,
+    )
+
+
+def _spawn_api_downloader(
+    label: str,
+    jobno: str,
+    max_candidates: int = 500,
+    min_bdjobs_score: int = 0,
+    cv_only: bool = False,
+    location_filter: str = "",
+    exp_keyword: str = "",
+    creds: dict | None = None,
+):
+    """Spawn the API-based downloader (10-20x faster than Playwright)."""
+    cmd = [
+        VENV_PYTHON, API_DOWNLOADER_PATH,
+        "--jobno", jobno,
+        "--label", label,
+        "--max-candidates", str(max_candidates),
+        "--min-score", str(min_bdjobs_score),
+        "--output-dir", str(RESUMES_BASE),
+    ]
+    if creds:
+        cmd.extend(["--username", creds.get("username", ""), "--password", creds.get("password", "")])
+    if cv_only:
+        cmd.append("--cv-only")
+    if location_filter.strip():
+        cmd.extend(["--location", location_filter.strip()])
+    if exp_keyword.strip():
+        cmd.extend(["--exp-keyword", exp_keyword.strip()])
+    return _spawn(
+        cmd,
+        log_name=f"api_dl_{label}", new_console=False,
     )
 
 
@@ -719,29 +753,50 @@ with st.form("download_form", clear_on_submit=False):
             )
 
         st.caption("💡 Filters are applied after fetching candidate list from BDJobs. The downloader will skip candidates that don't match your criteria.")
-    c1, c2, _ = st.columns([1, 1, 2])
+    c1, c2, c3 = st.columns([1, 1, 2])
     auto_rank_cb = c1.checkbox("Run ranker after download", value=True,
                                 help=f"After download finishes, automatically run "
                                      f"`ranker.py --job {{label}} --department {{dept}}`.")
-    submitted = c2.form_submit_button("🚀 Start download", type="primary")
+    use_fast_mode = c2.checkbox("⚡ Fast Mode (API)", value=False,
+                                help="Skip browser automation. Uses BDJobs API directly — 10-20x faster. "
+                                     "Requires BDJobs username/password saved above.")
+    submitted = c3.form_submit_button("🚀 Start download", type="primary")
 
 if submitted:
     if not url or not jobno:
         st.error("❌ URL is invalid — could not find a `jobno=` parameter.")
     elif not label.strip():
         st.error("❌ Job label is required.")
-    elif status["state"] == "missing":
+    elif not use_fast_mode and status["state"] == "missing":
         st.error("❌ No BDJobs session saved. Click 'Re-login to BDJobs' above first.")
+    elif use_fast_mode and not has_bdjobs_credentials(conn):
+        st.error("❌ Fast Mode requires BDJobs credentials. Save your username/password in the 'Manage BDJobs Credentials' section above.")
     else:
         label_safe = _sanitize_label(label)
-        p, lp = _spawn_downloader(
-            label_safe, url.strip(),
-            max_candidates=max_candidates,
-            min_bdjobs_score=min_bdjobs_score,
-            cv_only=cv_only,
-            location_filter=location_filter,
-            exp_keyword=exp_keyword,
-        )
+        if use_fast_mode:
+            # Fast Mode: use API downloader (no browser, 10-20x faster)
+            creds = get_bdjobs_credentials(conn)
+            p, lp = _spawn_api_downloader(
+                label_safe, jobno,
+                max_candidates=max_candidates,
+                min_bdjobs_score=min_bdjobs_score,
+                cv_only=cv_only,
+                location_filter=location_filter,
+                exp_keyword=exp_keyword,
+                creds=creds,
+            )
+            st.toast("Fast Mode downloader started (API-based).")
+        else:
+            # Standard Mode: use Playwright browser automation
+            p, lp = _spawn_downloader(
+                label_safe, url.strip(),
+                max_candidates=max_candidates,
+                min_bdjobs_score=min_bdjobs_score,
+                cv_only=cv_only,
+                location_filter=location_filter,
+                exp_keyword=exp_keyword,
+            )
+            st.toast("Downloader started. A Chromium window will appear.")
         st.session_state["bdjobs_dl_proc"]   = p
         st.session_state["bdjobs_dl_log"]    = lp
         st.session_state["bdjobs_dl_label"]  = label_safe
@@ -750,7 +805,7 @@ if submitted:
         st.session_state["bdjobs_auto_rank"] = auto_rank_cb
         st.session_state["bdjobs_phase"]     = "downloading"
         st.session_state["bdjobs_dl_start"]  = datetime.now().isoformat()
-        st.toast("Downloader started. A Chromium window will appear.")
+        st.session_state["bdjobs_dl_fast"]   = use_fast_mode
         time.sleep(1)
         st.rerun()
 
@@ -759,8 +814,10 @@ dl_proc = st.session_state.get("bdjobs_dl_proc")
 dl_log  = st.session_state.get("bdjobs_dl_log")
 dl_label = st.session_state.get("bdjobs_dl_label", "")
 
+dl_fast = st.session_state.get("bdjobs_dl_fast", False)
 if _is_alive(dl_proc):
-    st.info(f"⬇️ Downloading **{dl_label}** …")
+    mode_badge = "⚡ Fast Mode — " if dl_fast else ""
+    st.info(f"⬇️ {mode_badge}Downloading **{dl_label}** …")
     progress, log_text = _read_log_split(dl_log)
     if progress:
         total = progress.get("total", 0)
@@ -782,7 +839,7 @@ if _is_alive(dl_proc):
             pass
         for k in ("bdjobs_dl_proc", "bdjobs_dl_log", "bdjobs_dl_label",
                   "bdjobs_dl_dept", "bdjobs_dl_url", "bdjobs_auto_rank",
-                  "bdjobs_phase", "bdjobs_dl_start"):
+                  "bdjobs_phase", "bdjobs_dl_start", "bdjobs_dl_fast"):
             st.session_state.pop(k, None)
         st.rerun()
     time.sleep(3)
@@ -807,7 +864,7 @@ elif dl_proc is not None:
             st.code(_read_log(dl_log) or "(no output)", language="text")
     for k in ("bdjobs_dl_proc", "bdjobs_dl_log", "bdjobs_dl_label",
               "bdjobs_dl_dept", "bdjobs_dl_url", "bdjobs_auto_rank",
-              "bdjobs_phase", "bdjobs_dl_start"):
+              "bdjobs_phase", "bdjobs_dl_start", "bdjobs_dl_fast"):
         st.session_state.pop(k, None)
 
 st.markdown("---")
