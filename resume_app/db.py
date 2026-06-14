@@ -1549,7 +1549,8 @@ def fetch_departments(conn) -> list:
         cur.execute("""
             SELECT
                 COALESCE(j.department, 'Uncategorized')               AS department,
-                COUNT(DISTINCT j.job_label)                           AS job_count,
+                COUNT(DISTINCT CASE WHEN c.id IS NOT NULL
+                                    THEN j.job_label END)              AS job_count,
                 COUNT(c.id)                                           AS total_candidates,
                 SUM(CASE WHEN c.overall_score IS NOT NULL
                          THEN 1 ELSE 0 END)                           AS ranked_candidates,

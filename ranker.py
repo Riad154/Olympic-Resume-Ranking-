@@ -1584,6 +1584,22 @@ def compute_overall_score(scores: dict, job_config: dict | None = None) -> int:
     return max(0, min(100, int(round(overall))))
 
 
+def _score_to_recommendation(overall_score: int) -> str:
+    """Map computed overall_score to canonical ternary recommendation.
+
+    This ensures consistency across all candidates — the LLM's subjective
+    verdict is overridden by the objective weighted score.  Prevents the
+    model from being overly conservative (e.g. 0 Shortlist across 200+
+    ranked candidates because it never outputs the exact word "Shortlist").
+    """
+    if overall_score >= 70:
+        return "Shortlist"
+    elif overall_score >= 50:
+        return "Maybe"
+    else:
+        return "Reject"
+
+
 def compute_education_score(scores: dict) -> int:
     """Compute education_score deterministically from the three sub-scores.
 
@@ -1816,6 +1832,8 @@ async def process_one(
             scores["education_score"] = compute_education_score(scores)
             # Deterministic weighted overall_score (overrides any value from LLM)
             scores["overall_score"]   = compute_overall_score(scores, job_config)
+            # Deterministic recommendation from overall_score (fixes LLM conservatism)
+            scores["recommendation"]  = _score_to_recommendation(scores["overall_score"])
 
             # DB write under lock; batch commits
             async with db_lock:
@@ -1865,6 +1883,7 @@ async def process_one(
                     scores["recommendation"] = normalize_verdict(scores.get("recommendation"))
                     scores["education_score"] = compute_education_score(scores)
                     scores["overall_score"]   = compute_overall_score(scores, job_config)
+                    scores["recommendation"]  = _score_to_recommendation(scores["overall_score"])
                     async with db_lock:
                         def _write_fb():
                             with conn.cursor() as cur:
