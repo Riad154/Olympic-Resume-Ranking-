@@ -465,9 +465,19 @@ def main():
             }
             _save_session(session)
         else:
+            # Cached session might lack company_id (saved before fix)
+            # Decode JWT to recover it if missing
+            cached_company_id = session.get("company_id")
+            if not cached_company_id and session.get("token"):
+                claims = _decode_jwt_payload(session["token"])
+                cached_company_id = claims.get("CompanyId") or claims.get("companyId")
+                if cached_company_id:
+                    print(f"[OK] Recovered CompanyId from cached JWT: {cached_company_id}", flush=True)
+                    session["company_id"] = cached_company_id
+                    _save_session(session)
             client = BDJobsAPIClient(
                 token=session["token"],
-                company_id=session.get("company_id"),
+                company_id=cached_company_id,
                 encrypt_id=session.get("encrypt_id"),
             )
 
