@@ -26,6 +26,12 @@ import os
 import re
 import sys
 import time
+
+# Force UTF-8 output on Windows to avoid cp1252 UnicodeEncodeError
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse, quote
@@ -128,7 +134,7 @@ class BDJobsAPIClient:
 
     @classmethod
     def login(cls, username: str, password: str) -> "BDJobsAPIClient":
-        print(f"[INFO] Logging in as {username} …", flush=True)
+        print(f"[INFO] Logging in as {username} ...", flush=True)
         resp = requests.post(
             LOGIN_URL,
             json={"userName": username, "password": password, "systemId": 2},
@@ -257,7 +263,7 @@ class BDJobsAPIClient:
             print("[WARN] No encryptId, cannot fetch company info", flush=True)
             return
         url = f"{SUPPORT_URL}?ComUsrAcc={quote(self.encrypt_id)}"
-        print(f"[INFO] Fetching company info (fallback) …", flush=True)
+        print(f"[INFO] Fetching company info (fallback) ...", flush=True)
         try:
             r = self.session.get(url, timeout=30)
             print(f"[DEBUG] SupportingData HTTP {r.status_code}", flush=True)
@@ -299,7 +305,7 @@ class BDJobsAPIClient:
                 f"&assmntResult=&assmntOperator=&qmlloc=&qmlskill="
                 f"&newCount=0&pwd=0&FairID=0&FromLeftFilterSearch=0"
             )
-            print(f"[INFO] Fetching page {pg} …", flush=True)
+            print(f"[INFO] Fetching page {pg} ...", flush=True)
             r = self.session.get(url, timeout=30)
             print(f"[DEBUG] Page {pg} HTTP {r.status_code}", flush=True)
             r.raise_for_status()
@@ -330,7 +336,7 @@ class BDJobsAPIClient:
             elif not aid:
                 uniq.append(a)
         if len(uniq) < len(all_applicants):
-            print(f"[INFO] Deduplicated: {len(all_applicants)} → {len(uniq)}", flush=True)
+            print(f"[INFO] Deduplicated: {len(all_applicants)} -> {len(uniq)}", flush=True)
         return uniq
 
     def _get_applicant_id(self, job_no: str, apply_id: str) -> int | None:
@@ -497,7 +503,7 @@ def main():
     print(f"[INFO] Output folder: {job_dir}", flush=True)
 
     # ── Fetch applicants ──────────────────────────────────────────────
-    print(f"[INFO] Fetching applicants for job {args.jobno} …", flush=True)
+    print(f"[INFO] Fetching applicants for job {args.jobno} ...", flush=True)
     applicants = client.fetch_applicants(args.jobno)
     print(f"[OK] Fetched {len(applicants)} unique applicants", flush=True)
 
@@ -533,7 +539,7 @@ def main():
         applicants = applicants[:args.max_candidates]
 
     if len(applicants) < original_count:
-        print(f"[INFO] Filtered: {original_count} → {len(applicants)}", flush=True)
+        print(f"[INFO] Filtered: {original_count} -> {len(applicants)}", flush=True)
 
     # ── Save raw metadata ─────────────────────────────────────────────
     meta_path = os.path.join(job_dir, f"{folder_name}_metadata.csv")
@@ -555,7 +561,7 @@ def main():
             writer.writerow(row)
 
     # ── Download / extract ────────────────────────────────────────────
-    print(f"[INFO] Processing {len(applicants)} candidates …", flush=True)
+    print(f"[INFO] Processing {len(applicants)} candidates ...", flush=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     cv_ok = txt_ok = fail = 0
     failed_downloads = []
@@ -598,7 +604,7 @@ def main():
         status = client.download_cv(applicant, cv_path, jobno=args.jobno, job_title=(args.job_title or args.label))
         if status == "success":
             cv_ok += 1
-            print(f"  [{i}/{len(applicants)}] CV OK   – {name}", flush=True)
+            print(f"  [{i}/{len(applicants)}] CV OK   - {name}", flush=True)
         else:
             fail += 1
             failed_downloads.append({
@@ -606,7 +612,7 @@ def main():
                 "Name": name,
                 "Status": status,
             })
-            print(f"  [{i}/{len(applicants)}] CV FAIL – {name} ({status})", flush=True)
+            print(f"  [{i}/{len(applicants)}] CV FAIL - {name} ({status})", flush=True)
 
     # ── Summary ───────────────────────────────────────────────────────
     print(f"\n[DONE] Results for job {args.jobno}:", flush=True)
