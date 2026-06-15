@@ -429,7 +429,7 @@ def _render_candidate_detail(sel: pd.Series, key_suffix: str):
     st.markdown(sal_html, unsafe_allow_html=True)
 
     # Debug expander to diagnose data issues
-    with st.expander("🔍 Debug: Raw Data Values", expanded=True):
+    with st.expander("🔍 Debug: Raw Data Values", expanded=False):
         st.json(debug_info)
         st.write("**All available columns:**")
         st.write(list(sel.index) if hasattr(sel, 'index') else "N/A")
