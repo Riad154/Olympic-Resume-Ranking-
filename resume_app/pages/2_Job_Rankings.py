@@ -278,7 +278,7 @@ with st.sidebar:
     # ── Back button (only in detail mode) ─────────────────────────────────────
     if st.session_state["jr_mode"] == "detail":
         st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-        if st.button("⬅  Back to All Roles", use_container_width=True, type="secondary"):
+        if st.button("⬅  Close Job", use_container_width=True, type="secondary"):
             st.session_state["jr_mode"]       = "landing"
             st.session_state["jr_active_job"] = None
             st.session_state["selected_job"]  = None
@@ -1300,10 +1300,27 @@ def render_detail():
 # MODE DISPATCH
 # ═══════════════════════════════════════════════════════════════════════════════
 
-if st.session_state["jr_mode"] == "landing":
-    render_landing()
-else:
+if st.session_state.get("jr_active_job"):
     render_detail()
+else:
+    # Clean empty state — no "All Open Roles" accordion
+    st.markdown(
+        f"<div class='section-hd' style='font-size:1.3rem;color:{txt_col} !important;'>"
+        f"Job Rankings</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div class='hint-text' style='margin-bottom:1.5rem;'>"
+        f"Select a job to view ranked candidates. Navigate from the "
+        f"<b>Dashboard</b> or <b>Department Rankings</b> pages.</div>",
+        unsafe_allow_html=True,
+    )
+    # Zero-metrics row
+    zc1, zc2, zc3, zc4 = st.columns(4)
+    zc1.metric("Total Candidates", 0)
+    zc2.metric("Ranked", 0)
+    zc3.metric("Shortlist", 0)
+    zc4.metric("Reject", 0)
 
 # ── Auto-refresh while live processing is happening ───────────────────────────
 if _auto_refresh_jr and _active_jobs_jr:
