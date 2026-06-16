@@ -385,11 +385,6 @@ def _render_candidate_detail(sel: pd.Series, key_suffix: str):
     """, unsafe_allow_html=True)
 
     # ── Salary & financial info ─────────────────────────────────────────────
-    # Debug: show raw values to diagnose data issues
-    debug_fields = ["expected_salary", "current_salary", "bdjobs_score", "has_uploaded_cv",
-                    "application_date", "age", "email", "mobile"]
-    debug_info = {f: sel.get(f) for f in debug_fields}
-
     exp_sal_raw = sel.get("expected_salary")
     cur_sal_raw = sel.get("current_salary")
     bd_score_raw = sel.get("bdjobs_score")
@@ -427,18 +422,6 @@ def _render_candidate_detail(sel: pd.Series, key_suffix: str):
         </div>
     '''
     st.markdown(sal_html, unsafe_allow_html=True)
-
-    # Debug expander to diagnose data issues
-    with st.expander("🔍 Debug: Raw Data Values", expanded=False):
-        st.json(debug_info)
-        st.write("**All available columns:**")
-        st.write(list(sel.index) if hasattr(sel, 'index') else "N/A")
-        st.write("**Raw sel type:**", type(sel))
-        # Check specific fields
-        st.write("**Direct field access test:**")
-        for field in ["expected_salary", "current_salary", "bdjobs_score", "has_uploaded_cv"]:
-            val = sel[field] if field in sel.index else "FIELD_NOT_FOUND"
-            st.write(f"  {field}: {repr(val)} (type: {type(val)})")
 
     # ── Two-column body ───────────────────────────────────────────────────────
     col_left, col_right = st.columns([3, 2], gap="large")

@@ -950,7 +950,7 @@ def render_detail():
                     unsafe_allow_html=True,
                 )
         
-                # Salary & financial info (with debug)
+                # Salary & financial info
             exp_sal_raw = sel.get("expected_salary")
             cur_sal_raw = sel.get("current_salary")
             bd_score_raw = sel.get("bdjobs_score")
