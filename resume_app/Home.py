@@ -23,6 +23,11 @@ init_theme()
 st.markdown(get_css(), unsafe_allow_html=True)
 render_sidebar()
 
+if not st.session_state.get("user"):
+    st.warning("🔒 Please log in to access this page.")
+    safe_switch_page("pages/0_Login.py")
+    st.stop()
+
 try:
     conn = get_conn()
 except Exception as e:

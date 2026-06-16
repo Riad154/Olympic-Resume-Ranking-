@@ -146,9 +146,9 @@ render_sidebar()
 
 if not st.session_state.get("user"):
     st.warning("🔒 Please log in to access this page.")
-    if st.button("Go to Login", type="primary"):
-        safe_switch_page("pages/0_Login.py")
+    safe_switch_page("pages/0_Login.py")
     st.stop()
+
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-title">New Job Posting</div>', unsafe_allow_html=True)
