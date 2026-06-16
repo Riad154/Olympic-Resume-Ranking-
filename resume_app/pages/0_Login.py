@@ -41,26 +41,25 @@ if st.session_state.get("user"):
         safe_switch_page("Home.py")
     st.stop()
 
-# ── Login form (vertically + horizontally centered) ─────────────────────────────
-# Spacer above to push card toward vertical center
-st.markdown("<div style='height:10vh;'></div>", unsafe_allow_html=True)
+# ── Login form (compact, no-scroll) ────────────────────────────────────────────
+st.markdown("<div style='height:4vh;'></div>", unsafe_allow_html=True)
 
-left, col, right = st.columns([1, 1.6, 1])
+left, col, right = st.columns([1, 1.4, 1])
 with col:
-    # Olympic logo
+    # Olympic logo — compact
     logo_path = Path(__file__).resolve().parent.parent / "user_logo.png"
     if logo_path.exists():
-        st.image(str(logo_path), use_container_width=True)
+        st.image(str(logo_path), width=180)
     else:
-        st.markdown("<div style='height:2rem;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:1rem;'></div>", unsafe_allow_html=True)
 
     st.markdown(
         """
-        <div style="text-align:center;margin-bottom:1.5rem;">
-            <div style="font-size:1.4rem;font-weight:700;color:#1E293B;">
+        <div style="text-align:center;margin-bottom:1rem;">
+            <div style="font-size:1.25rem;font-weight:700;color:#1E293B;">
                 HR Intelligence Platform
             </div>
-            <div style="font-size:0.85rem;color:#64748B;margin-top:4px;">
+            <div style="font-size:0.8rem;color:#64748B;margin-top:2px;">
                 Please sign in to continue
             </div>
         </div>
