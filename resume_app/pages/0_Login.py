@@ -46,18 +46,28 @@ st.markdown("<div style='height:4vh;'></div>", unsafe_allow_html=True)
 
 left, col, right = st.columns([1, 1.4, 1])
 with col:
-    # Olympic logo — centered within column
+    # Olympic logo — perfectly centered, tight spacing
     logo_path = Path(__file__).resolve().parent.parent / "user_logo.png"
     if logo_path.exists():
-        _, logo_c, _ = st.columns([1, 2, 1])
-        with logo_c:
-            st.image(str(logo_path), width=160)
+        b64 = ""
+        try:
+            import base64
+            b64 = base64.b64encode(logo_path.read_bytes()).decode()
+        except Exception:
+            pass
+        if b64:
+            st.markdown(
+                f"<div style='text-align:center;margin-bottom:0.3rem;'>"
+                f"<img src='data:image/png;base64,{b64}' width='140' style='display:inline-block;'>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
     else:
-        st.markdown("<div style='height:1rem;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:0.3rem;'></div>", unsafe_allow_html=True)
 
     st.markdown(
         """
-        <div style="text-align:center;margin-bottom:1rem;">
+        <div style="text-align:center;margin-bottom:0.8rem;">
             <div style="font-size:1.25rem;font-weight:700;color:#1E293B;">
                 HR Intelligence Platform
             </div>
