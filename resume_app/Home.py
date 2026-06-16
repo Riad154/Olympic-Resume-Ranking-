@@ -62,11 +62,12 @@ total_short  = sum(r.get("shortlist", 0) for r in dept_rows)
 
 metrics = [
     (active_depts,                     "Active Departments"),
+    (stats["total_jobs"],              "Job Postings"),
     (stats["total_candidates"],        "Total Candidates"),
     (stats["total_candidates"] - stats["pending"], "Ranked"),
     (total_short,                      "🟢 Shortlists"),
 ]
-for col, (val, lbl) in zip(st.columns(4), metrics):
+for col, (val, lbl) in zip(st.columns(5), metrics):
     with col:
         st.markdown(
             f"""
@@ -77,6 +78,43 @@ for col, (val, lbl) in zip(st.columns(4), metrics):
             """,
             unsafe_allow_html=True,
         )
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ── Quick-jump: Department + Job selector ─────────────────────────────────────
+st.markdown(
+    f'<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
+    'Open Rankings</div>',
+    unsafe_allow_html=True,
+)
+
+col_dept, col_job, col_btn = st.columns([2, 3, 1])
+with col_dept:
+    all_depts_with_data = [r["department"] for r in dept_rows] or ["Uncategorized"]
+    sel_dept = st.selectbox(
+        "Department",
+        all_depts_with_data,
+        key="quickjump_dept",
+        label_visibility="visible",
+    )
+with col_job:
+    dept_jobs = []
+    if not jobs_df.empty:
+        dept_jobs = jobs_df[jobs_df["department"].fillna("Uncategorized") == sel_dept]["job_label"].tolist()
+    dept_jobs = dept_jobs or ["— no postings —"]
+    sel_job = st.selectbox(
+        "Job Posting",
+        dept_jobs,
+        key="quickjump_job",
+        label_visibility="visible",
+    )
+with col_btn:
+    st.markdown("<div style='height:1.6rem'></div>", unsafe_allow_html=True)
+    if st.button("OPEN  →", type="primary", use_container_width=True):
+        if sel_job and sel_job != "— no postings —":
+            st.session_state["selected_dept"] = sel_dept
+            st.session_state["selected_job"]  = sel_job
+            safe_switch_page("pages/1_Department_Rankings.py")
 
 st.markdown("<br>", unsafe_allow_html=True)
 

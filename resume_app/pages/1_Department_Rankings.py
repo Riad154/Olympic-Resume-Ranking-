@@ -87,7 +87,21 @@ if _active_jobs:
 else:
     _auto_refresh_dept = False
 
-# ── Sidebar filters ────────────────────────────────────────────────────────────
+if not dept_rows:
+    if _active_jobs:
+        st.info("⏳ Ranking is in progress — candidates will appear here as they are processed.")
+    else:
+        st.info(
+            "No ranked candidates yet.  Use **New Job Posting** to register a job, "
+            "then run `ranker.py --job <label> --department <dept>` to populate rankings."
+        )
+    if _auto_refresh_dept:
+        import time as _time
+        _time.sleep(5)
+        st.rerun()
+    st.stop()
+
+# ── Sidebar filters (used by both the All-Depts overview and per-dept tabs) ───
 with st.sidebar:
     st.markdown(
         '<hr style="border-color:rgba(255,255,255,0.2);margin:0.8rem 0;">',
@@ -103,44 +117,66 @@ with st.sidebar:
     min_exp   = st.slider("Min Experience (yrs)", 0, 20, 0, 1)
     search    = st.text_input("Search (name, ID, email, degree...)", placeholder="Type to filter...")
 
-# ── Metrics dashboard (always visible, 0 when empty) ───────────────────────────
-totals = {
-    "depts":       len(dept_rows),
-    "candidates":  sum(r["total_candidates"]   for r in dept_rows),
-    "ranked":      sum(r["ranked_candidates"]  for r in dept_rows),
-    "shortlist":   sum(r["shortlist"]          for r in dept_rows),
-    "maybe":       sum(r["maybe"]              for r in dept_rows),
-    "reject":      sum(r["reject"]             for r in dept_rows),
-}
+# ── Top tab strip: All Departments + one per active department ────────────────
+tab_labels = ["All Departments"] + [
+    f"{r['department']}  ({r['ranked_candidates']})" for r in dept_rows
+]
 
-for col, val, lbl in zip(
-    st.columns(5),
-    [totals["depts"], totals["ranked"], totals["shortlist"], totals["maybe"], totals["reject"]],
-    ["Active Departments", "Ranked", "🟢 Shortlist", "🟡 Maybe", "🔴 Reject"],
-):
-    with col:
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="metric-val">{val}</div>
-                <div class="metric-lbl">{lbl}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown(
-    '<div class="section-hd">Department Summary</div>',
-    unsafe_allow_html=True,
-)
-
-if not dept_rows:
-    st.info(
-        "No ranked candidates yet. Use **New Job Posting** to register a job, "
-        "then run the ranker to populate rankings."
+# BUG-07 fix: when Home.py / Dashboard sets st.session_state["selected_dept"]
+# via the OPEN -> button, surface a banner pointing the user to the matching
+# tab. Streamlit's st.tabs has no native default-index API, so we cannot auto-
+# focus the tab; this banner is the least-invasive way to direct attention.
+_requested_dept = (st.session_state.get("selected_dept") or "").strip()
+if _requested_dept:
+    matched_idx = next(
+        (i for i, r in enumerate(dept_rows, start=1)
+         if r["department"] == _requested_dept),
+        0,
     )
-else:
+    if matched_idx > 0:
+        st.info(
+            f"🏢 Showing department: **{_requested_dept}** — "
+            f"select its tab below ↓ (tab #{matched_idx})",
+            icon="🏢",
+        )
+        # Clear after surfacing once so it doesn't keep flashing on every rerun.
+        st.session_state.pop("selected_dept", None)
+
+tabs = st.tabs(tab_labels)
+
+# ── All Departments overview tab ───────────────────────────────────────────────
+with tabs[0]:
+    totals = {
+        "depts":       len(dept_rows),
+        "candidates":  sum(r["total_candidates"]   for r in dept_rows),
+        "ranked":      sum(r["ranked_candidates"]  for r in dept_rows),
+        "shortlist":   sum(r["shortlist"]          for r in dept_rows),
+        "maybe":       sum(r["maybe"]              for r in dept_rows),
+        "reject":      sum(r["reject"]             for r in dept_rows),
+    }
+
+    for col, val, lbl in zip(
+        st.columns(5),
+        [totals["depts"], totals["ranked"], totals["shortlist"], totals["maybe"], totals["reject"]],
+        ["Active Departments", "Ranked", "🟢 Shortlist", "🟡 Maybe", "🔴 Reject"],
+    ):
+        with col:
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                    <div class="metric-val">{val}</div>
+                    <div class="metric-lbl">{lbl}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-hd">Department Summary</div>',
+        unsafe_allow_html=True,
+    )
+
     for r in dept_rows:
         last = r.get("last_run") or "—"
         st.markdown(
@@ -162,6 +198,10 @@ else:
             """,
             unsafe_allow_html=True,
         )
+
+# ── Per-department tabs ────────────────────────────────────────────────────────
+
+
 def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
@@ -657,7 +697,95 @@ def _render_candidate_detail(sel: pd.Series, key_suffix: str):
                 st.info("💡 Try downloading the PDF instead using the button above.")
 
 
+for idx, dept in enumerate(dept_rows, start=1):
+    dept_name = dept["department"]
+    with tabs[idx]:
+        # Metrics strip for this dept
+        for col, val, lbl in zip(
+            st.columns(4),
+            [
+                dept["ranked_candidates"],
+                dept["shortlist"],
+                dept["maybe"],
+                dept["job_count"],
+            ],
+            ["Ranked", "🟢 Shortlist", "🟡 Maybe", "Job Postings"],
+        ):
+            with col:
+                st.markdown(
+                    f"""
+                    <div class="metric-card">
+                        <div class="metric-val">{val}</div>
+                        <div class="metric-lbl">{lbl}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Load all candidates for this dept once (cached per interaction).
+        all_df = fetch_candidates_by_department(conn, dept_name)
+        jobs_in_dept = fetch_jobs_by_department(conn, dept_name)
+
+        # Job sub-tabs: "All Jobs" + one per job_label
+        job_tab_labels = [f"All Jobs in Dept ({len(all_df)})"] + [
+            f"{r['job_label']}  ({r['ranked']})" for r in jobs_in_dept
+        ]
+        job_tabs = st.tabs(job_tab_labels)
+
+        def _export_button(scope_df: pd.DataFrame, scope_label: str, key: str):
+            if scope_df.empty:
+                return
+            stamp = datetime.now().strftime("%Y%m%d_%H%M")
+            fname = f"{scope_label}_{stamp}.xlsx"
+            st.download_button(
+                f"📥  Export — {scope_label}.xlsx",
+                data=to_excel(scope_df, scope_label),
+                file_name=fname,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"export_{key}",
+            )
+
+        # -- All Jobs sub-tab ------------------------------------------------
+        with job_tabs[0]:
+            filtered = _apply_filters(all_df)
+            _export_button(filtered, f"{dept_name}_rankings", f"dept_{idx}_all")
+            st.markdown(
+                f'<div class="hint-text" style="padding:0.4rem 0;">'
+                f'Showing {len(filtered)} of {len(all_df)} ranked in {dept_name}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            event = _render_ranked_table(filtered, show_job_col=True, unique_key=f"d{idx}_all")
+            if event and event.selection and event.selection.rows:
+                sel = filtered.iloc[event.selection.rows[0]]
+                st.markdown('<hr class="divider">', unsafe_allow_html=True)
+                _render_candidate_detail(sel, key_suffix=f"d{idx}_all")
+
+        # -- One sub-tab per job_label ---------------------------------------
+        for j, job in enumerate(jobs_in_dept, start=1):
+            with job_tabs[j]:
+                if all_df.empty or "job_label" not in all_df.columns:
+                    job_df = pd.DataFrame()
+                else:
+                    job_df = all_df[all_df["job_label"] == job["job_label"]].copy()
+                if not job_df.empty:
+                    job_df = job_df.reset_index(drop=True)
+                    job_df["rank"] = range(1, len(job_df) + 1)
+                filtered = _apply_filters(job_df)
+                _export_button(filtered, job["job_label"], f"dept_{idx}_job_{j}")
+                title = job.get("job_title") or job["job_label"]
+                st.markdown(
+                    f'<div class="hint-text" style="padding:0.4rem 0;">'
+                    f'{title} — {len(filtered)} of {len(job_df)} ranked</div>',
+                    unsafe_allow_html=True,
+                )
+                event = _render_ranked_table(filtered, show_job_col=False, unique_key=f"d{idx}_j{j}")
+                if event and event.selection and event.selection.rows:
+                    sel = filtered.iloc[event.selection.rows[0]]
+                    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+                    _render_candidate_detail(sel, key_suffix=f"d{idx}_j{j}")
 
 # ── Auto-refresh while live processing is happening ───────────────────────────
 if _auto_refresh_dept and _active_jobs:
