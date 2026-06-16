@@ -512,22 +512,33 @@ with col_gpu:
         vram_total = g["vram_total_gb"]
         vram_pct = (vram_used / vram_total * 100.0) if vram_total else 0
 
-        # Health / speed status
-        if util > 70 and vram_pct > 80:
+        # ── Smooth util with rolling average (prevents flickering between batches) ──
+        hist_key = "_gpu_util_history"
+        if hist_key not in st.session_state:
+            st.session_state[hist_key] = []
+        history = st.session_state[hist_key]
+        history.append(util)
+        if len(history) > 8:
+            history.pop(0)
+        smooth_util = sum(history) / len(history) if history else util
+
+        # ── Stable status: based on smoothed util + VRAM ──
+        if vram_pct > 90:
+            health_icon = "� VRAM Critical"
+            health_color = "red"
+        elif smooth_util > 60 and vram_pct > 60:
             health_icon = "🟢 Healthy & Busy"
             health_color = "green"
-        elif util > 50:
-            health_icon = "🟢 Active"
+        elif smooth_util > 25 or vram_pct > 40:
+            health_icon = "� Active"
             health_color = "green"
-        elif util < 10 and vram_pct < 20:
-            health_icon = "🟡 Idle / Under-utilized"
+        elif vram_pct < 20 and smooth_util < 15:
+            health_icon = "� Idle / Under-utilized"
             health_color = "orange"
-        elif vram_pct > 90:
-            health_icon = "🔴 VRAM Critical"
-            health_color = "red"
         else:
-            health_icon = "🟠 Ramping"
-            health_color = "orange"
+            # Model loaded but between batches — still "Active"
+            health_icon = "� Active"
+            health_color = "green"
 
         st.markdown(f"**{g['name']}** — <span style='color:{health_color}'>{health_icon}</span>", unsafe_allow_html=True)
 
