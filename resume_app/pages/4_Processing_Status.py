@@ -37,6 +37,12 @@ if ON_CLOUD:
     st.markdown(get_css(), unsafe_allow_html=True)
     render_sidebar()
 
+if not st.session_state.get("user"):
+    st.warning("🔒 Please log in to access this page.")
+    if st.button("Go to Login", type="primary"):
+        safe_switch_page("pages/0_Login.py")
+    st.stop()
+
     st.markdown('<div class="page-title">Processing Status</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="page-sub">Ranker &amp; scraper status on Streamlit Cloud</div>',

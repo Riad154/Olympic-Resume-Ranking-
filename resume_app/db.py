@@ -1055,6 +1055,34 @@ CREATE TABLE IF NOT EXISTS bdjobs_credentials (
 
 UPDATE jobs SET department = 'Uncategorized'
   WHERE department IS NULL OR department = '';
+
+-- Authentication & audit tables
+CREATE TABLE IF NOT EXISTS users (
+    id            SERIAL PRIMARY KEY,
+    username      TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name  TEXT,
+    role          TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin','user')),
+    is_active     BOOLEAN DEFAULT TRUE,
+    created_at    TIMESTAMP DEFAULT NOW(),
+    last_login    TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    username    TEXT,
+    action      TEXT NOT NULL,
+    target_type TEXT,
+    target_id   TEXT,
+    details     TEXT,
+    ip_address  TEXT,
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 """
 
 # ── Connection ─────────────────────────────────────────────────────────────────
@@ -1290,6 +1318,121 @@ def render_processing_banner() -> None:
         + "\n\nYou can navigate freely — rankings update live as candidates are processed.",
         icon="🔄",
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Authentication helpers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+try:
+    import bcrypt
+except Exception:  # pragma: no cover
+    bcrypt = None
+
+
+def _hash_password(password: str) -> str:
+    """Hash a plain-text password using bcrypt."""
+    if bcrypt is None:
+        raise RuntimeError("bcrypt is not installed. Run: pip install bcrypt")
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+    """Verify a plain-text password against a bcrypt hash."""
+    if bcrypt is None:
+        return False
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def authenticate_user(conn, username: str, password: str) -> dict | None:
+    """Validate credentials. Returns user dict {id, username, display_name, role}
+    on success, None on failure."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, username, password_hash, display_name, role, is_active FROM users WHERE username = %s",
+            (username,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    uid, uname, pwd_hash, dname, role, is_active = row
+    if not is_active:
+        return None
+    if not _verify_password(password, pwd_hash):
+        return None
+    # Update last_login
+    with conn.cursor() as cur:
+        cur.execute("UPDATE users SET last_login = NOW() WHERE id = %s", (uid,))
+    return {"id": uid, "username": uname, "display_name": dname or uname, "role": role}
+
+
+def create_user(conn, username: str, password: str, display_name: str | None = None,
+                role: str = "user", created_by: str | None = None) -> tuple[bool, str]:
+    """Create a new user. Returns (success, message)."""
+    if not username or not password:
+        return False, "Username and password are required."
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters."
+    if role not in ("admin", "user"):
+        return False, "Invalid role."
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (username, password_hash, display_name, role) VALUES (%s, %s, %s, %s)",
+                (username, _hash_password(password), display_name or username, role),
+            )
+        return True, f"User '{username}' created successfully."
+    except psycopg2.IntegrityError:
+        return False, f"Username '{username}' already exists."
+    except Exception as e:
+        return False, f"Error creating user: {e}"
+
+
+def list_users(conn) -> list[dict]:
+    """Return all users ordered by creation date."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, username, display_name, role, is_active, created_at, last_login "
+            "FROM users ORDER BY created_at DESC"
+        )
+        cols = [desc[0] for desc in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def toggle_user_active(conn, user_id: int, is_active: bool) -> None:
+    """Enable or disable a user account."""
+    with conn.cursor() as cur:
+        cur.execute("UPDATE users SET is_active = %s WHERE id = %s", (is_active, user_id))
+
+
+def log_audit(conn, user_id: int | None, username: str | None, action: str,
+              target_type: str | None = None, target_id: str | None = None,
+              details: str | None = None) -> None:
+    """Write an entry to the audit log."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO audit_logs (user_id, username, action, target_type, target_id, details) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (user_id, username, action, target_type, target_id, details),
+            )
+    except Exception:
+        pass  # Never block the UI for audit logging
+
+
+def get_audit_logs(conn, limit: int = 500) -> list[dict]:
+    """Return recent audit logs."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, username, action, target_type, target_id, details, created_at "
+            "FROM audit_logs ORDER BY created_at DESC LIMIT %s",
+            (limit,),
+        )
+        cols = [desc[0] for desc in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
 # ── Metadata ingestion ─────────────────────────────────────────────────────────
@@ -2263,7 +2406,34 @@ def render_sidebar():
                 </div>
             """, unsafe_allow_html=True)
 
-        # ── Single navigation section ──────────────────────────────────────────
+        # ── Auth section ─────────────────────────────────────────────────────────
+        user = st.session_state.get("user")
+        if user:
+            st.markdown('<hr class="divider">', unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div style="padding:0.3rem 0.4rem;">
+                    <div style="font-size:0.82rem;font-weight:600;color:#FFFFFF !important;">
+                        👤 {user.get('display_name', user['username'])}
+                    </div>
+                    <div style="font-size:0.65rem;color:rgba(255,255,255,0.65) !important;">
+                        {'🔑 Admin' if user.get('role') == 'admin' else '👤 User'}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("🚪  Logout", use_container_width=True, type="secondary"):
+                try:
+                    _conn = fresh_conn()
+                    log_audit(_conn, user.get("id"), user.get("username"), "LOGOUT")
+                except Exception:
+                    pass
+                st.session_state.pop("user", None)
+                st.session_state.clear()
+                st.rerun()
+
+        # ── Navigation (only when logged in) ─────────────────────────────────────
         st.markdown('<div class="nav-label">Navigation</div>', unsafe_allow_html=True)
 
         def _safe_page_link(page: str, label: str) -> None:
@@ -2272,13 +2442,10 @@ def render_sidebar():
             try:
                 st.page_link(page, label=label)
             except Exception:
-                # Fallback: build Streamlit Cloud URL path
-                # pages/1_Department_Rankings.py -> /Department_Rankings
                 if page == "Home.py":
                     href = "/"
                 else:
                     name = page.replace("pages/", "").replace(".py", "")
-                    # Strip leading number prefix (e.g. "0_", "1_", "6_")
                     name = re.sub(r"^\d+_", "", name)
                     href = f"/{name}"
                 st.markdown(
@@ -2289,14 +2456,19 @@ def render_sidebar():
                     unsafe_allow_html=True,
                 )
 
-        _safe_page_link("Home.py",                           label="📋  Dashboard")
-        _safe_page_link("pages/0_Download_CVs.py",           label="⬇️⬆️ Download/Upload CVs")
-        _safe_page_link("pages/1_Department_Rankings.py",    label="🏢  Department Rankings")
-        _safe_page_link("pages/2_Job_Rankings.py",           label="📊  Job Rankings")
-        _safe_page_link("pages/3_New_Job.py",                label="📝  New Job Posting")
-        _safe_page_link("pages/4_Processing_Status.py",      label="⏳  Processing Status")
-        _safe_page_link("pages/6_Compare_Candidates.py",     label="⚖️  Compare Candidates")
-        _safe_page_link("pages/5_Settings.py",               label="⚙️  Settings")
+        if user:
+            _safe_page_link("Home.py",                           label="📋  Dashboard")
+            _safe_page_link("pages/0_Download_CVs.py",           label="⬇️⬆️ Download/Upload CVs")
+            _safe_page_link("pages/1_Department_Rankings.py",    label="🏢  Department Rankings")
+            _safe_page_link("pages/2_Job_Rankings.py",           label="📊  Job Rankings")
+            _safe_page_link("pages/3_New_Job.py",                label="📝  New Job Posting")
+            _safe_page_link("pages/4_Processing_Status.py",      label="⏳  Processing Status")
+            _safe_page_link("pages/6_Compare_Candidates.py",     label="⚖️  Compare Candidates")
+            _safe_page_link("pages/5_Settings.py",               label="⚙️  Settings")
+            if user.get("role") == "admin":
+                _safe_page_link("pages/7_Admin.py", label="🔐  Admin Panel")
+        else:
+            _safe_page_link("pages/0_Login.py", label="🔐  Login")
 
 def safe_switch_page(page: str) -> None:
     """Cloud-safe wrapper around st.switch_page.

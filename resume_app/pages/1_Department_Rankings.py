@@ -19,7 +19,7 @@ from db import (
     get_conn,
     fetch_departments, fetch_jobs_by_department, fetch_candidates_by_department,
     to_excel, save_hr_override, delete_candidate,
-    get_css, init_theme, render_sidebar, safe_switch_page,
+    get_css, init_theme, render_sidebar, safe_switch_page, log_audit,
     VERDICT_CFG, SCORE_DIMS, FAVICON,
     get_active_processing, render_processing_banner,
 )
@@ -56,6 +56,12 @@ div[data-testid="stDataFrame"] { border-radius: 8px !important; overflow: hidden
 """, unsafe_allow_html=True)
 
 render_sidebar()
+
+if not st.session_state.get("user"):
+    st.warning("🔒 Please log in to access this page.")
+    if st.button("Go to Login", type="primary"):
+        safe_switch_page("pages/0_Login.py")
+    st.stop()
 
 # ── DB ─────────────────────────────────────────────────────────────────────────
 try:
@@ -604,6 +610,10 @@ def _render_candidate_detail(sel: pd.Series, key_suffix: str):
             use_container_width=True,
         ):
             save_hr_override(job_label, apply_id, new_override, hr_note)
+            user = st.session_state.get("user", {})
+            log_audit(conn, user.get("id"), user.get("username"), "SAVE_HR_OVERRIDE",
+                      target_type="candidate", target_id=apply_id,
+                      details=f"Job: {job_label} | Override: {new_override}")
             st.success("Saved successfully.")
             st.rerun()
 
@@ -630,6 +640,10 @@ def _render_candidate_detail(sel: pd.Series, key_suffix: str):
                              key=f"del_yes_dept_{apply_id}_{key_suffix}", use_container_width=True):
                     ok = delete_candidate(job_label, apply_id)
                     st.session_state[del_key] = False
+                    user = st.session_state.get("user", {})
+                    log_audit(conn, user.get("id"), user.get("username"), "DELETE_CANDIDATE",
+                              target_type="candidate", target_id=apply_id,
+                              details=f"Job: {job_label} | Name: {name}")
                     if ok:
                         st.success(f"Deleted {name} successfully.")
                     else:

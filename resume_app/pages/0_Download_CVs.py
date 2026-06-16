@@ -27,7 +27,7 @@ import pandas as pd
 import streamlit as st
 
 from db import (
-    get_css, init_theme, render_sidebar, safe_switch_page,
+    get_css, init_theme, render_sidebar, safe_switch_page, log_audit,
     DEPARTMENT_LIST, list_download_folders, FAVICON,
     RESUMES_BASE, RANKER_PATH, VENV_PYTHON,
     get_conn, save_bdjobs_credentials, get_bdjobs_credentials,
@@ -44,6 +44,12 @@ st.set_page_config(
 init_theme()
 st.markdown(get_css(), unsafe_allow_html=True)
 render_sidebar()
+
+if not st.session_state.get("user"):
+    st.warning("🔒 Please log in to access this page.")
+    if st.button("Go to Login", type="primary"):
+        safe_switch_page("pages/0_Login.py")
+    st.stop()
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 PROJECT_ROOT    = Path(__file__).resolve().parent.parent.parent

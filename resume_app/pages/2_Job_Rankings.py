@@ -14,7 +14,7 @@ from datetime import datetime
 
 # ── Shared data layer ─────────────────────────────────────────────────────────
 from db import (
-    get_conn,
+    get_conn, log_audit,
     t,
     fetch_candidates,
     fetch_departments_with_roles,
@@ -272,6 +272,12 @@ render_processing_banner()
 # SIDEBAR (using shared render_sidebar for consistency)
 # ═══════════════════════════════════════════════════════════════════════════════
 render_sidebar()
+
+if not st.session_state.get("user"):
+    st.warning("🔒 Please log in to access this page.")
+    if st.button("Go to Login", type="primary"):
+        safe_switch_page("pages/0_Login.py")
+    st.stop()
 
 # ── Extra sidebar controls for Job Rankings ────────────────────────────────
 with st.sidebar:
@@ -1136,6 +1142,10 @@ def render_detail():
             )
             if st.button("💾  Save HR Decision", type="primary", key=f"save_{apply_id}", use_container_width=True):
                 save_hr_override(job_label, apply_id, new_override, hr_note)
+                user = st.session_state.get("user", {})
+                log_audit(conn, user.get("id"), user.get("username"), "SAVE_HR_OVERRIDE",
+                          target_type="candidate", target_id=apply_id,
+                          details=f"Job: {job_label} | Override: {new_override}")
                 st.success("Saved successfully.")
                 st.rerun()
 

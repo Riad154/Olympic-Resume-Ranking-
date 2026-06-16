@@ -73,7 +73,7 @@ def main():
             print("          - BDJOBS_USER: your BDJobs recruiter username/email", flush=True)
             print("          - BDJOBS_PASS: your BDJobs recruiter password", flush=True)
             print("", flush=True)
-            print("        Go to: GitHub repo → Settings → Secrets and variables → Actions", flush=True)
+            print("        Go to: GitHub repo -> Settings -> Secrets and variables -> Actions", flush=True)
             sys.exit(1)
         else:
             creds = _get_db_creds()

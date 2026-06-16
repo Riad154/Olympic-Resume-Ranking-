@@ -11,7 +11,7 @@ import requests
 import psycopg2
 import streamlit as st
 from db import (
-    get_conn, get_css, init_theme, render_sidebar, PG_CONN, pg_is_configured, FAVICON,
+    get_conn, get_css, init_theme, render_sidebar, PG_CONN, pg_is_configured, FAVICON, log_audit,
     fetch_all_jobs, fetch_job, get_job_department, update_job_status, update_job,
     fix_inconsistent_verdicts, associate_candidates_with_job,
     get_bdjobs_credentials, save_bdjobs_credentials,
@@ -48,6 +48,12 @@ st.set_page_config(page_title="Settings — HR Intelligence", page_icon=FAVICON,
 init_theme()
 st.markdown(get_css(), unsafe_allow_html=True)
 render_sidebar()
+
+if not st.session_state.get("user"):
+    st.warning("🔒 Please log in to access this page.")
+    if st.button("Go to Login", type="primary"):
+        safe_switch_page("pages/0_Login.py")
+    st.stop()
 
 is_day   = st.session_state.get("day_mode", True)
 txt_col  = "#1E293B" if is_day else "#E2E8F0"
