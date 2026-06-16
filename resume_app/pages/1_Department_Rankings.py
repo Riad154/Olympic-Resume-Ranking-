@@ -695,14 +695,15 @@ for idx, dept in enumerate(dept_rows, start=1):
     with tabs[idx]:
         # Metrics strip for this dept
         for col, val, lbl in zip(
-            st.columns(4),
+            st.columns(5),
             [
+                dept["total_candidates"],
                 dept["ranked_candidates"],
                 dept["shortlist"],
                 dept["maybe"],
-                dept["job_count"],
+                dept["reject"],
             ],
-            ["Ranked", "🟢 Shortlist", "🟡 Maybe", "Job Postings"],
+            ["Total Candidates", "Ranked", "🟢 Shortlist", "🟡 Maybe", "🔴 Reject"],
         ):
             with col:
                 st.markdown(
@@ -750,6 +751,29 @@ for idx, dept in enumerate(dept_rows, start=1):
                 f'</div>',
                 unsafe_allow_html=True,
             )
+            for col, val, lbl in zip(
+                st.columns(5),
+                [
+                    len(all_df),
+                    len(filtered),
+                    len(filtered[filtered["recommendation"] == "Shortlist"]),
+                    len(filtered[filtered["recommendation"] == "Maybe"]),
+                    len(filtered[filtered["recommendation"] == "Reject"]),
+                ],
+                ["Total Candidates", "Ranked", "🟢 Shortlist", "🟡 Maybe", "🔴 Reject"],
+            ):
+                with col:
+                    st.markdown(
+                        f"""
+                        <div class="metric-card">
+                            <div class="metric-val">{val}</div>
+                            <div class="metric-lbl">{lbl}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+            st.markdown("<br>", unsafe_allow_html=True)
+
             event = _render_ranked_table(filtered, show_job_col=True, unique_key=f"d{idx}_all")
             if event and event.selection and event.selection.rows:
                 sel = filtered.iloc[event.selection.rows[0]]
@@ -774,6 +798,29 @@ for idx, dept in enumerate(dept_rows, start=1):
                     f'{title} — {len(filtered)} of {len(job_df)} ranked</div>',
                     unsafe_allow_html=True,
                 )
+                for col, val, lbl in zip(
+                    st.columns(5),
+                    [
+                        len(job_df),
+                        len(filtered),
+                        len(filtered[filtered["recommendation"] == "Shortlist"]),
+                        len(filtered[filtered["recommendation"] == "Maybe"]),
+                        len(filtered[filtered["recommendation"] == "Reject"]),
+                    ],
+                    ["Total Candidates", "Ranked", "🟢 Shortlist", "🟡 Maybe", "🔴 Reject"],
+                ):
+                    with col:
+                        st.markdown(
+                            f"""
+                            <div class=\"metric-card\">
+                                <div class=\"metric-val\">{val}</div>
+                                <div class=\"metric-lbl\">{lbl}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                st.markdown("<br>", unsafe_allow_html=True)
+
                 event = _render_ranked_table(filtered, show_job_col=False, unique_key=f"d{idx}_j{j}")
                 if event and event.selection and event.selection.rows:
                     sel = filtered.iloc[event.selection.rows[0]]
