@@ -141,34 +141,7 @@ if _requested_dept:
         tab_labels = []
         tabs = []
 else:
-    # Landing: show clean welcome with overall stats
-    totals = {
-        "depts":       len(dept_rows),
-        "candidates":  sum(r["total_candidates"]   for r in dept_rows),
-        "ranked":      sum(r["ranked_candidates"]  for r in dept_rows),
-        "shortlist":   sum(r["shortlist"]          for r in dept_rows),
-        "maybe":       sum(r["maybe"]              for r in dept_rows),
-        "reject":      sum(r["reject"]             for r in dept_rows),
-    }
-
-    for col, val, lbl in zip(
-        st.columns(5),
-        [totals["depts"], totals["ranked"], totals["shortlist"], totals["maybe"], totals["reject"]],
-        ["Active Departments", "Ranked", "🟢 Shortlist", "🟡 Maybe", "🔴 Reject"],
-    ):
-        with col:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                    <div class="metric-val">{val}</div>
-                    <div class="metric-lbl">{lbl}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
+    # Landing: clean welcome — no metrics, no tabs
     st.info(
         "🎉 Welcome to Department Rankings.\n\n"
         "Go to the **Dashboard** and click **OPEN →** on any job posting to view "
@@ -176,11 +149,6 @@ else:
     )
     tab_labels = []
     tabs = []
-
-# ── Per-department tabs ────────────────────────────────────────────────────────
-# ── Per-department tabs ────────────────────────────────────────────────────────
-
-
 def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
@@ -684,75 +652,19 @@ def _render_candidate_detail(sel: pd.Series, key_suffix: str):
                 st.info("💡 Try downloading the PDF instead using the button above.")
 
 
-for idx, dept in enumerate(dept_rows, start=1):
-    dept_name = dept["department"]
-    with tabs[idx]:
-        # Metrics strip for this dept
-        for col, val, lbl in zip(
-            st.columns(5),
-            [
-                dept["total_candidates"],
-                dept["ranked_candidates"],
-                dept["shortlist"],
-                dept["maybe"],
-                dept["reject"],
-            ],
-            ["Total Candidates", "Ranked", "🟢 Shortlist", "🟡 Maybe", "🔴 Reject"],
-        ):
-            with col:
-                st.markdown(
-                    f"""
-                    <div class="metric-card">
-                        <div class="metric-val">{val}</div>
-                        <div class="metric-lbl">{lbl}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Load all candidates for this dept once (cached per interaction).
-        all_df = fetch_candidates_by_department(conn, dept_name)
-        jobs_in_dept = fetch_jobs_by_department(conn, dept_name)
-
-        # Job sub-tabs: "All Jobs" + one per job_label
-        job_tab_labels = [f"All Jobs in Dept ({len(all_df)})"] + [
-            f"{r['job_label']}  ({r['ranked']})" for r in jobs_in_dept
-        ]
-        job_tabs = st.tabs(job_tab_labels)
-
-        def _export_button(scope_df: pd.DataFrame, scope_label: str, key: str):
-            if scope_df.empty:
-                return
-            stamp = datetime.now().strftime("%Y%m%d_%H%M")
-            fname = f"{scope_label}_{stamp}.xlsx"
-            st.download_button(
-                f"📥  Export — {scope_label}.xlsx",
-                data=to_excel(scope_df, scope_label),
-                file_name=fname,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"export_{key}",
-            )
-
-        # -- All Jobs sub-tab ------------------------------------------------
-        with job_tabs[0]:
-            filtered = _apply_filters(all_df)
-            _export_button(filtered, f"{dept_name}_rankings", f"dept_{idx}_all")
-            st.markdown(
-                f'<div class="hint-text" style="padding:0.4rem 0;">'
-                f'Showing {len(filtered)} of {len(all_df)} ranked in {dept_name}'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+if tabs:
+    for idx, dept in enumerate(dept_rows, start=1):
+        dept_name = dept["department"]
+        with tabs[idx]:
+            # Metrics strip for this dept
             for col, val, lbl in zip(
                 st.columns(5),
                 [
-                    len(all_df),
-                    len(filtered),
-                    len(filtered[filtered["recommendation"] == "Shortlist"]),
-                    len(filtered[filtered["recommendation"] == "Maybe"]),
-                    len(filtered[filtered["recommendation"] == "Reject"]),
+                    dept["total_candidates"],
+                    dept["ranked_candidates"],
+                    dept["shortlist"],
+                    dept["maybe"],
+                    dept["reject"],
                 ],
                 ["Total Candidates", "Ranked", "🟢 Shortlist", "🟡 Maybe", "🔴 Reject"],
             ):
@@ -766,36 +678,46 @@ for idx, dept in enumerate(dept_rows, start=1):
                         """,
                         unsafe_allow_html=True,
                     )
+    
             st.markdown("<br>", unsafe_allow_html=True)
-
-            event = _render_ranked_table(filtered, show_job_col=True, unique_key=f"d{idx}_all")
-            if event and event.selection and event.selection.rows:
-                sel = filtered.iloc[event.selection.rows[0]]
-                st.markdown('<hr class="divider">', unsafe_allow_html=True)
-                _render_candidate_detail(sel, key_suffix=f"d{idx}_all")
-
-        # -- One sub-tab per job_label ---------------------------------------
-        for j, job in enumerate(jobs_in_dept, start=1):
-            with job_tabs[j]:
-                if all_df.empty or "job_label" not in all_df.columns:
-                    job_df = pd.DataFrame()
-                else:
-                    job_df = all_df[all_df["job_label"] == job["job_label"]].copy()
-                if not job_df.empty:
-                    job_df = job_df.reset_index(drop=True)
-                    job_df["rank"] = range(1, len(job_df) + 1)
-                filtered = _apply_filters(job_df)
-                _export_button(filtered, job["job_label"], f"dept_{idx}_job_{j}")
-                title = job.get("job_title") or job["job_label"]
+    
+            # Load all candidates for this dept once (cached per interaction).
+            all_df = fetch_candidates_by_department(conn, dept_name)
+            jobs_in_dept = fetch_jobs_by_department(conn, dept_name)
+    
+            # Job sub-tabs: "All Jobs" + one per job_label
+            job_tab_labels = [f"All Jobs in Dept ({len(all_df)})"] + [
+                f"{r['job_label']}  ({r['ranked']})" for r in jobs_in_dept
+            ]
+            job_tabs = st.tabs(job_tab_labels)
+    
+            def _export_button(scope_df: pd.DataFrame, scope_label: str, key: str):
+                if scope_df.empty:
+                    return
+                stamp = datetime.now().strftime("%Y%m%d_%H%M")
+                fname = f"{scope_label}_{stamp}.xlsx"
+                st.download_button(
+                    f"📥  Export — {scope_label}.xlsx",
+                    data=to_excel(scope_df, scope_label),
+                    file_name=fname,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"export_{key}",
+                )
+    
+            # -- All Jobs sub-tab ------------------------------------------------
+            with job_tabs[0]:
+                filtered = _apply_filters(all_df)
+                _export_button(filtered, f"{dept_name}_rankings", f"dept_{idx}_all")
                 st.markdown(
                     f'<div class="hint-text" style="padding:0.4rem 0;">'
-                    f'{title} — {len(filtered)} of {len(job_df)} ranked</div>',
+                    f'Showing {len(filtered)} of {len(all_df)} ranked in {dept_name}'
+                    f'</div>',
                     unsafe_allow_html=True,
                 )
                 for col, val, lbl in zip(
                     st.columns(5),
                     [
-                        len(job_df),
+                        len(all_df),
                         len(filtered),
                         len(filtered[filtered["recommendation"] == "Shortlist"]),
                         len(filtered[filtered["recommendation"] == "Maybe"]),
@@ -806,22 +728,69 @@ for idx, dept in enumerate(dept_rows, start=1):
                     with col:
                         st.markdown(
                             f"""
-                            <div class=\"metric-card\">
-                                <div class=\"metric-val\">{val}</div>
-                                <div class=\"metric-lbl\">{lbl}</div>
+                            <div class="metric-card">
+                                <div class="metric-val">{val}</div>
+                                <div class="metric-lbl">{lbl}</div>
                             </div>
                             """,
                             unsafe_allow_html=True,
                         )
                 st.markdown("<br>", unsafe_allow_html=True)
-
-                event = _render_ranked_table(filtered, show_job_col=False, unique_key=f"d{idx}_j{j}")
+    
+                event = _render_ranked_table(filtered, show_job_col=True, unique_key=f"d{idx}_all")
                 if event and event.selection and event.selection.rows:
                     sel = filtered.iloc[event.selection.rows[0]]
                     st.markdown('<hr class="divider">', unsafe_allow_html=True)
-                    _render_candidate_detail(sel, key_suffix=f"d{idx}_j{j}")
-
-# ── Auto-refresh while live processing is happening ───────────────────────────
+                    _render_candidate_detail(sel, key_suffix=f"d{idx}_all")
+    
+            # -- One sub-tab per job_label ---------------------------------------
+            for j, job in enumerate(jobs_in_dept, start=1):
+                with job_tabs[j]:
+                    if all_df.empty or "job_label" not in all_df.columns:
+                        job_df = pd.DataFrame()
+                    else:
+                        job_df = all_df[all_df["job_label"] == job["job_label"]].copy()
+                    if not job_df.empty:
+                        job_df = job_df.reset_index(drop=True)
+                        job_df["rank"] = range(1, len(job_df) + 1)
+                    filtered = _apply_filters(job_df)
+                    _export_button(filtered, job["job_label"], f"dept_{idx}_job_{j}")
+                    title = job.get("job_title") or job["job_label"]
+                    st.markdown(
+                        f'<div class="hint-text" style="padding:0.4rem 0;">'
+                        f'{title} — {len(filtered)} of {len(job_df)} ranked</div>',
+                        unsafe_allow_html=True,
+                    )
+                    for col, val, lbl in zip(
+                        st.columns(5),
+                        [
+                            len(job_df),
+                            len(filtered),
+                            len(filtered[filtered["recommendation"] == "Shortlist"]),
+                            len(filtered[filtered["recommendation"] == "Maybe"]),
+                            len(filtered[filtered["recommendation"] == "Reject"]),
+                        ],
+                        ["Total Candidates", "Ranked", "🟢 Shortlist", "🟡 Maybe", "🔴 Reject"],
+                    ):
+                        with col:
+                            st.markdown(
+                                f"""
+                                <div class=\"metric-card\">
+                                    <div class=\"metric-val\">{val}</div>
+                                    <div class=\"metric-lbl\">{lbl}</div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                    st.markdown("<br>", unsafe_allow_html=True)
+    
+                    event = _render_ranked_table(filtered, show_job_col=False, unique_key=f"d{idx}_j{j}")
+                    if event and event.selection and event.selection.rows:
+                        sel = filtered.iloc[event.selection.rows[0]]
+                        st.markdown('<hr class="divider">', unsafe_allow_html=True)
+                        _render_candidate_detail(sel, key_suffix=f"d{idx}_j{j}")
+    
+    # ── Auto-refresh while live processing is happening ───────────────────────────
 if _auto_refresh_dept and _active_jobs:
     import time as _time
     _time.sleep(5)
