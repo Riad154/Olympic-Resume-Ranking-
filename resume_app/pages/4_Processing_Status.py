@@ -441,7 +441,7 @@ events = _peek_events
 
 start_ev = next((e for e in events if e.get("event") == "start"), None)
 done_ev  = next((e for e in reversed(events) if e.get("event") == "done"), None)
-oks      = [e for e in events if e.get("event") == "ok"]
+oks      = [e for e in events if e.get("event") in ("ok", "ok_fallback")]
 errs     = [e for e in events if e.get("event") == "error"]
 
 total_files   = (start_ev or {}).get("total", len(oks) + len(errs))

@@ -1270,7 +1270,7 @@ def get_active_processing() -> list[dict]:
                     e = ev.get("event")
                     if e == "start":
                         total = ev.get("total", 0)
-                    elif e in ("ok", "error"):
+                    elif e in ("ok", "ok_fallback", "error"):
                         processed += 1
                         if e == "error":
                             errors += 1
