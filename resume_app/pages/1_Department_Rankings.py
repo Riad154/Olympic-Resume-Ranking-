@@ -178,32 +178,11 @@ with tabs[0]:
             )
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(
-        '<div class="section-hd">Department Summary</div>',
-        unsafe_allow_html=True,
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.info(
+        "🎉 Welcome to Department Rankings.\n\n"
+        "Select a department tab above to explore ranked candidates by department and role."
     )
-
-    for r in dept_rows:
-        last = r.get("last_run") or "—"
-        st.markdown(
-            f"""
-            <div class="dept-card">
-                <div class="dept-name">{r['department']}
-                    <span style="float:right;font-size:0.78rem;font-weight:500;color:#64748B;">
-                        {r['job_count']} job posting{'s' if r['job_count'] != 1 else ''}
-                    </span>
-                </div>
-                <div class="dept-stats">
-                    <b>{r['ranked_candidates']}</b> ranked &nbsp;·&nbsp;
-                    🟢 {r['shortlist']} Shortlist &nbsp;·&nbsp;
-                    🟡 {r['maybe']} Maybe &nbsp;·&nbsp;
-                    🔴 {r['reject']} Reject
-                </div>
-                <div class="dept-meta">Last run: {last}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
 # ── Per-department tabs ────────────────────────────────────────────────────────
 
