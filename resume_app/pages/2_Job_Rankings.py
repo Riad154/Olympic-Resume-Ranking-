@@ -375,32 +375,44 @@ def render_landing():
         key="landing_search",
     )
 
-    # Only show department/role cards when a search term is entered
-    if search_term:
-        depts = fetch_departments_with_roles(conn)
-        clean_depts = []
-        for dept in depts:
-            roles = [r for r in dept.get("roles", []) if r.get("total", 0) > 0]
-            if roles:
-                dept = dict(dept)
-                dept["roles"] = roles
-                dept["total_roles"] = len(roles)
-                dept["total_applicants"] = sum(r.get("total", 0) for r in roles)
-                dept["total_ranked"] = sum(r.get("ranked", 0) for r in roles)
-                clean_depts.append(dept)
+    # Fetch departments and keep only roles that have ranked candidates
+    depts = fetch_departments_with_roles(conn)
+    clean_depts = []
+    for dept in depts:
+        roles = [r for r in dept.get("roles", []) if r.get("ranked", 0) > 0]
+        if roles:
+            dept = dict(dept)
+            dept["roles"] = roles
+            dept["total_roles"] = len(roles)
+            dept["total_applicants"] = sum(r.get("total", 0) for r in roles)
+            dept["total_ranked"] = sum(r.get("ranked", 0) for r in roles)
+            clean_depts.append(dept)
 
-        search_lower = search_term.lower()
-        for dept in clean_depts:
-            dept_name = dept.get("department") or "Uncategorized"
+    # Apply search filter if user typed something
+    search_lower = search_term.lower()
+    display_depts = []
+    for dept in clean_depts:
+        dept_name = dept.get("department") or "Uncategorized"
+        if search_term:
             roles = [
                 r for r in dept.get("roles", [])
                 if search_lower in (r.get("job_title") or "").lower()
                 or search_lower in (r.get("job_label") or "").lower()
                 or search_lower in dept_name.lower()
             ]
-            if not roles:
-                continue
+        else:
+            roles = dept.get("roles", [])
+        if roles:
+            d = dict(dept)
+            d["roles"] = roles
+            d["total_roles"] = len(roles)
+            d["total_applicants"] = sum(r.get("total", 0) for r in roles)
+            d["total_ranked"] = sum(r.get("ranked", 0) for r in roles)
+            display_depts.append(d)
 
+    if display_depts:
+        for dept in display_depts:
+            dept_name = dept.get("department") or "Uncategorized"
             label = (
                 f"{dept_name}  ·  "
                 f"{dept.get('total_roles', 0)} role(s)  ·  "
@@ -408,7 +420,7 @@ def render_landing():
                 f"{dept.get('total_ranked', 0)} ranked"
             )
             with st.expander(label, expanded=True):
-                for role in roles:
+                for role in dept.get("roles", []):
                     _render_role_card(role)
     else:
         st.info(

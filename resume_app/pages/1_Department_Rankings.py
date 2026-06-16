@@ -141,14 +141,21 @@ if _requested_dept:
         tab_labels = []
         tabs = []
 else:
-    # Landing: clean welcome — no metrics, no tabs
-    st.info(
-        "🎉 Welcome to Department Rankings.\n\n"
-        "Go to the **Dashboard** and click **OPEN →** on any job posting to view "
-        "ranked candidates for that department and role."
-    )
-    tab_labels = []
-    tabs = []
+    # Landing: show department tabs when ranked data exists,
+    # otherwise show the welcome message.
+    ranked_dept_rows = [r for r in dept_rows if r.get("ranked_candidates", 0) > 0]
+    if ranked_dept_rows:
+        dept_rows = ranked_dept_rows
+        tab_labels = [f"{r['department']}  ({r['ranked_candidates']})" for r in dept_rows]
+        tabs = st.tabs(tab_labels)
+    else:
+        st.info(
+            "🎉 Welcome to Department Rankings.\n\n"
+            "Go to the **Dashboard** and click **OPEN →** on any job posting to view "
+            "ranked candidates for that department and role."
+        )
+        tab_labels = []
+        tabs = []
 def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
