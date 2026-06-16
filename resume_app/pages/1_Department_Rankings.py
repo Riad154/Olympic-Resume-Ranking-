@@ -123,6 +123,25 @@ with st.sidebar:
     min_exp   = st.slider("Min Experience (yrs)", 0, 20, 0, 1)
     search    = st.text_input("Search (name, ID, email, degree...)", placeholder="Type to filter...")
 
+# ── Main content search ─────────────────────────────────────────────────────────
+st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+st.markdown(
+    f"<div class='section-hd' style='font-size:1.4rem;margin-bottom:0.2rem;color:{txt_col} !important;'>"
+    f"Department Rankings</div>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    f"<div class='hint-text' style='margin-bottom:1rem;'>"
+    f"Search below to explore ranked candidates by department and role."
+    f"</div>",
+    unsafe_allow_html=True,
+)
+dept_search = st.text_input(
+    "🔎  Search departments or roles", "",
+    placeholder="e.g. Finance, SAP, Manager...",
+    key="dept_landing_search",
+)
+
 # ── Top tab strip: All Departments + one per active department ────────────────
 tab_labels = ["All Departments"] + [
     f"{r['department']}  ({r['ranked_candidates']})" for r in dept_rows
@@ -203,6 +222,13 @@ with tabs[0]:
             </div>
             """,
             unsafe_allow_html=True,
+        )
+
+    if not dept_search:
+        st.info(
+            "🎉 Welcome to Department Rankings.\n\n"
+            "Type in the search box above to find departments, roles, or candidates. "
+            "Once you search, department details with ranked candidates will appear here."
         )
 
 # ── Per-department tabs ────────────────────────────────────────────────────────
@@ -714,6 +740,12 @@ def _render_candidate_detail(sel: pd.Series, key_suffix: str):
 for idx, dept in enumerate(dept_rows, start=1):
     dept_name = dept["department"]
     with tabs[idx]:
+        if not dept_search:
+            st.info(
+                "🔍 Type a department or role name in the search box above "
+                "to see ranked candidates for this department."
+            )
+            continue
         # Metrics strip for this dept
         for col, val, lbl in zip(
             st.columns(4),
