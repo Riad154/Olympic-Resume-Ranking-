@@ -7,6 +7,8 @@ without an active user session.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 from db import (
@@ -39,9 +41,19 @@ if st.session_state.get("user"):
         safe_switch_page("Home.py")
     st.stop()
 
-# ── Login form ─────────────────────────────────────────────────────────────────
-left, col, right = st.columns([1, 2, 1])
+# ── Login form (vertically + horizontally centered) ─────────────────────────────
+# Spacer above to push card toward vertical center
+st.markdown("<div style='height:10vh;'></div>", unsafe_allow_html=True)
+
+left, col, right = st.columns([1, 1.6, 1])
 with col:
+    # Olympic logo
+    logo_path = Path(__file__).resolve().parent.parent / "user_logo.png"
+    if logo_path.exists():
+        st.image(str(logo_path), use_container_width=True)
+    else:
+        st.markdown("<div style='height:2rem;'></div>", unsafe_allow_html=True)
+
     st.markdown(
         """
         <div style="text-align:center;margin-bottom:1.5rem;">
