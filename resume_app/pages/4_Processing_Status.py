@@ -444,22 +444,24 @@ done_ev  = next((e for e in reversed(events) if e.get("event") == "done"), None)
 oks      = [e for e in events if e.get("event") == "ok"]
 errs     = [e for e in events if e.get("event") == "error"]
 
-total   = (start_ev or {}).get("total", len(oks) + len(errs))
-workers = (start_ev or {}).get("workers", "?")
-processed = len(oks) + len(errs)
+total_files   = (start_ev or {}).get("total", len(oks) + len(errs))
+pending_total = (start_ev or {}).get("pending", total_files)
+already_ranked = (start_ev or {}).get("already_ranked", 0)
+workers       = (start_ev or {}).get("workers", "?")
+processed     = len(oks) + len(errs)
 
 # ETA + speed calc from first ok/error timestamp to last, / processed -> avg; times remaining.
 eta_str = "—"
 speed_str = "—"        # candidates per second
 avg_sec = None
-if processed >= 2 and total and processed < total:
+if processed >= 2 and pending_total and processed < pending_total:
     try:
         ts = [datetime.datetime.fromisoformat(e["ts"])
               for e in events if e.get("event") in ("ok", "error") and "ts" in e]
         if len(ts) >= 2:
             elapsed = (ts[-1] - ts[0]).total_seconds()
             avg_sec = elapsed / max(1, len(ts) - 1)
-            remaining = avg_sec * (total - processed)
+            remaining = avg_sec * (pending_total - processed)
             mins = remaining / 60.0
             eta_str = f"~{mins:.1f} min"
             speed_str = f"{1.0 / avg_sec:.2f} cand/s"
@@ -473,7 +475,7 @@ if avg_sec is None and start_ev:
         elapsed = (datetime.datetime.now() - start_ts).total_seconds()
         if elapsed > 0 and processed > 0:
             avg_sec = elapsed / processed
-            remaining = avg_sec * (total - processed)
+            remaining = avg_sec * (pending_total - processed)
             eta_str = f"~{remaining/60.0:.1f} min (wall)"
             speed_str = f"{1.0 / avg_sec:.2f} cand/s"
     except Exception:
@@ -482,18 +484,24 @@ if avg_sec is None and start_ev:
 # ── Top metrics ───────────────────────────────────────────────────────────────
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Total", total or 0)
-c2.metric("Processed", processed)
-c3.metric("✅ OK", len(oks))
+c1.metric("Total Files", total_files or 0)
+c2.metric("Pending", pending_total or 0)
+c3.metric("✅ Processed", processed)
 c4.metric("⚠ Errors", len(errs))
 c5.metric("Workers", workers)
 c6.metric("⚡ Speed", speed_str, delta=eta_str)
 
-pct = (processed / total) if total else 0.0
-st.progress(min(1.0, pct), text=f"Ranked {processed} of {total or '?'} — ETA {eta_str}")
+pct = (processed / pending_total) if pending_total else 0.0
+progress_text = f"Ranked {processed} of {pending_total or '?'} pending — ETA {eta_str}"
+if already_ranked:
+    progress_text += f"  ({already_ranked} already ranked from previous run)"
+st.progress(min(1.0, pct), text=progress_text)
 
 if done_ev:
-    st.success(f"Run finished at {done_ev.get('ts', '?')} with {done_ev.get('errors', 0)} errors.")
+    done_msg = f"Run finished at {done_ev.get('ts', '?')} with {done_ev.get('errors', 0)} errors."
+    if already_ranked:
+        done_msg += f"  ({already_ranked} candidate(s) were already ranked — not re-processed.)"
+    st.success(done_msg)
 
 # ── GPU + Ollama status ───────────────────────────────────────────────────────
 

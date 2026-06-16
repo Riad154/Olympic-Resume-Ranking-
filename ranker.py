@@ -2150,13 +2150,6 @@ async def main_async(args):
 
     log_lock = asyncio.Lock()
     db_lock  = asyncio.Lock()
-    await write_progress_async(log_lock, log_path, {
-        "event":   "start",
-        "job":     args.job,
-        "total":   len(txt_files),
-        "rerank":  args.rerank,
-        "workers": args.workers,
-    })
 
     with conn.cursor() as cur:
         existing = get_existing_apply_ids(cur, args.job) if not args.rerank else set()
@@ -2185,6 +2178,17 @@ async def main_async(args):
     skipped = len(txt_files) - len(pending_files)
     if skipped:
         print(f"[Skip] {skipped} already-ranked candidates (use --rerank to force).")
+
+    # Write start event AFTER we know how many are actually pending
+    await write_progress_async(log_lock, log_path, {
+        "event":          "start",
+        "job":            args.job,
+        "total":          len(txt_files),
+        "pending":        len(pending_files),
+        "already_ranked": skipped,
+        "rerank":         args.rerank,
+        "workers":        args.workers,
+    })
 
     sem = asyncio.Semaphore(args.workers)
     state = {"pending": 0}
@@ -2239,9 +2243,11 @@ async def main_async(args):
             pass
 
     await write_progress_async(log_lock, log_path, {
-        "event":  "done",
-        "total":  len(txt_files),
-        "errors": len(errors),
+        "event":          "done",
+        "total":          len(txt_files),
+        "pending":        len(pending_files),
+        "already_ranked": skipped,
+        "errors":         len(errors),
     })
 
     print(f"\nDone. Ranked: {len(pending_files) - len(errors)} | Skipped: {skipped} | Errors: {len(errors)}")
@@ -2421,8 +2427,8 @@ def main():
                         help="After ranking, run a percentile-based rescaling pass (Part 7.3)")
     parser.add_argument("--normalise-only", action="store_true",
                         help="Run normalisation on already-ranked candidates only, skip ranking")
-    parser.add_argument("--workers",        type=int, default=int(os.environ.get("RANKER_WORKERS", "5")),
-                        help="Number of parallel Ollama workers (default: 5). Increase if GPU VRAM allows.")
+    parser.add_argument("--workers",        type=int, default=int(os.environ.get("RANKER_WORKERS", "2")),
+                        help="Number of parallel Ollama workers (default: 2). Recommended: 2 for 8GB VRAM, 3-4 for 12GB+.")
     args = parser.parse_args()
 
     # If --rerank-id is provided, set rerank=True so it doesn't skip existing
