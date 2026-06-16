@@ -56,31 +56,49 @@ st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
 # ── Create User ────────────────────────────────────────────────────────────────
 st.markdown("<div class='section-hd'>Create New User</div>", unsafe_allow_html=True)
+st.caption("Only admins can create accounts. Fill in all required fields below.")
 
-c1, c2 = st.columns(2)
-with c1:
-    new_username = st.text_input("Username", key="new_username")
-    new_display = st.text_input("Display Name", key="new_display")
-with c2:
-    new_password = st.text_input("Password", type="password", key="new_password")
-    new_role = st.selectbox("Role", ["user", "admin"], key="new_role")
+r1 = st.columns(2)
+with r1[0]:
+    new_username = st.text_input("Username *", key="new_username")
+    new_password = st.text_input("Password *", type="password", key="new_password")
+    new_department = st.text_input("Department", placeholder="e.g. HR, IT, Finance", key="new_dept")
+with r1[1]:
+    new_display = st.text_input("Full Name *", key="new_display")
+    new_role = st.selectbox("Role *", ["user", "admin"], key="new_role")
+    new_employee_id = st.text_input("Employee ID", key="new_emp_id")
+
+r2 = st.columns(2)
+with r2[0]:
+    new_email = st.text_input("Email", placeholder="user@company.com", key="new_email")
+with r2[1]:
+    new_phone = st.text_input("Phone Number", placeholder="+880 1XXX XXXXXX", key="new_phone")
 
 if st.button("Create User", type="primary"):
-    ok, msg = create_user(
-        conn,
-        username=new_username,
-        password=new_password,
-        display_name=new_display,
-        role=new_role,
-        created_by=user["username"],
-    )
-    if ok:
-        st.success(msg)
-        log_audit(conn, user["id"], user["username"], "CREATE_USER",
-                  target_type="user", target_id=new_username,
-                  details=f"Created {new_role} account.")
+    if not new_username or not new_password or not new_display:
+        st.error("Username, Full Name, and Password are required.")
+    elif len(new_password) < 6:
+        st.error("Password must be at least 6 characters.")
     else:
-        st.error(msg)
+        ok, msg = create_user(
+            conn,
+            username=new_username,
+            password=new_password,
+            display_name=new_display,
+            role=new_role,
+            created_by=user["username"],
+            department=new_department or None,
+            email=new_email or None,
+            phone=new_phone or None,
+            employee_id=new_employee_id or None,
+        )
+        if ok:
+            st.success(msg)
+            log_audit(conn, user["id"], user["username"], "CREATE_USER",
+                      target_type="user", target_id=new_username,
+                      details=f"Created {new_role} account | Dept: {new_department or 'N/A'}")
+        else:
+            st.error(msg)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -92,7 +110,11 @@ if users:
     df = pd.DataFrame(users)
     df["status"] = df["is_active"].apply(lambda x: "🟢 Active" if x else "🔴 Disabled")
     df["last_login"] = df["last_login"].fillna("—")
-    display_cols = ["username", "display_name", "role", "status", "created_at", "last_login"]
+    df["department"] = df["department"].fillna("—")
+    df["email"] = df["email"].fillna("—")
+    df["phone"] = df["phone"].fillna("—")
+    df["employee_id"] = df["employee_id"].fillna("—")
+    display_cols = ["username", "display_name", "role", "department", "email", "phone", "employee_id", "status", "created_at", "last_login"]
     st.dataframe(df[display_cols], use_container_width=True, hide_index=True)
 
     st.markdown("<div class='section-hd' style='margin-top:1rem;'>Manage Users</div>", unsafe_allow_html=True)

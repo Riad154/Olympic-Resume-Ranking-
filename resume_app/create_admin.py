@@ -9,8 +9,15 @@ Then follow the prompts to set the admin username and password.
 """
 
 import getpass
+import sys
+from pathlib import Path
 
-from db import fresh_conn, create_user, _hash_password
+# Ensure project root is on sys.path when run as a module or directly
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from resume_app.db import fresh_conn, create_user, _hash_password
 
 
 def main():

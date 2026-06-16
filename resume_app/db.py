@@ -1083,6 +1083,12 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+
+-- User profile fields
+ALTER TABLE users ADD COLUMN IF NOT EXISTS department  TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email       TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone       TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id TEXT;
 """
 
 # ── Connection ─────────────────────────────────────────────────────────────────
@@ -1370,7 +1376,9 @@ def authenticate_user(conn, username: str, password: str) -> dict | None:
 
 
 def create_user(conn, username: str, password: str, display_name: str | None = None,
-                role: str = "user", created_by: str | None = None) -> tuple[bool, str]:
+                role: str = "user", created_by: str | None = None,
+                department: str | None = None, email: str | None = None,
+                phone: str | None = None, employee_id: str | None = None) -> tuple[bool, str]:
     """Create a new user. Returns (success, message)."""
     if not username or not password:
         return False, "Username and password are required."
@@ -1381,8 +1389,13 @@ def create_user(conn, username: str, password: str, display_name: str | None = N
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO users (username, password_hash, display_name, role) VALUES (%s, %s, %s, %s)",
-                (username, _hash_password(password), display_name or username, role),
+                """
+                INSERT INTO users
+                    (username, password_hash, display_name, role, department, email, phone, employee_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (username, _hash_password(password), display_name or username, role,
+                 department, email, phone, employee_id),
             )
         return True, f"User '{username}' created successfully."
     except psycopg2.IntegrityError:
@@ -1395,8 +1408,8 @@ def list_users(conn) -> list[dict]:
     """Return all users ordered by creation date."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, username, display_name, role, is_active, created_at, last_login "
-            "FROM users ORDER BY created_at DESC"
+            "SELECT id, username, display_name, role, is_active, department, email, phone, employee_id, "
+            "created_at, last_login FROM users ORDER BY created_at DESC"
         )
         cols = [desc[0] for desc in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
