@@ -368,28 +368,6 @@ def render_landing():
         unsafe_allow_html=True,
     )
 
-    depts = fetch_departments_with_roles(conn)
-    # Filter out roles with zero candidates and departments left empty
-    clean_depts = []
-    for dept in depts:
-        roles = [r for r in dept.get("roles", []) if r.get("total", 0) > 0]
-        if roles:
-            dept = dict(dept)
-            dept["roles"] = roles
-            dept["total_roles"] = len(roles)
-            dept["total_applicants"] = sum(r.get("total", 0) for r in roles)
-            dept["total_ranked"] = sum(r.get("ranked", 0) for r in roles)
-            clean_depts.append(dept)
-
-    if not clean_depts:
-        st.info(
-            "🎉 Welcome to the HR Ranking Platform.\n\n"
-            "No job postings with candidates yet. "
-            "Go to **Download/Upload CVs** to fetch BDJobs applicants, "
-            "then rank them to see results here."
-        )
-        return
-
     # Search box (landing only)
     search_term = st.text_input(
         "🔎  Search roles or departments", "",
@@ -397,16 +375,25 @@ def render_landing():
         key="landing_search",
     )
 
-    last_dept = st.session_state.get("jr_last_dept")
+    # Only show department/role cards when a search term is entered
+    if search_term:
+        depts = fetch_departments_with_roles(conn)
+        clean_depts = []
+        for dept in depts:
+            roles = [r for r in dept.get("roles", []) if r.get("total", 0) > 0]
+            if roles:
+                dept = dict(dept)
+                dept["roles"] = roles
+                dept["total_roles"] = len(roles)
+                dept["total_applicants"] = sum(r.get("total", 0) for r in roles)
+                dept["total_ranked"] = sum(r.get("ranked", 0) for r in roles)
+                clean_depts.append(dept)
 
-    for dept in clean_depts:
-        dept_name = dept.get("department") or "Uncategorized"
-        roles = dept.get("roles", [])
-
-        if search_term:
-            search_lower = search_term.lower()
+        search_lower = search_term.lower()
+        for dept in clean_depts:
+            dept_name = dept.get("department") or "Uncategorized"
             roles = [
-                r for r in roles
+                r for r in dept.get("roles", [])
                 if search_lower in (r.get("job_title") or "").lower()
                 or search_lower in (r.get("job_label") or "").lower()
                 or search_lower in dept_name.lower()
@@ -414,17 +401,21 @@ def render_landing():
             if not roles:
                 continue
 
-        expand = (dept_name == last_dept)
-        label = (
-            f"{dept_name}  ·  "
-            f"{dept.get('total_roles', 0)} role(s)  ·  "
-            f"{dept.get('total_applicants', 0)} applicant(s)  ·  "
-            f"{dept.get('total_ranked', 0)} ranked"
+            label = (
+                f"{dept_name}  ·  "
+                f"{dept.get('total_roles', 0)} role(s)  ·  "
+                f"{dept.get('total_applicants', 0)} applicant(s)  ·  "
+                f"{dept.get('total_ranked', 0)} ranked"
+            )
+            with st.expander(label, expanded=True):
+                for role in roles:
+                    _render_role_card(role)
+    else:
+        st.info(
+            "🎉 Welcome to the HR Ranking Platform.\n\n"
+            "Use the search box above to find roles, or go to "
+            "**Download/Upload CVs** to fetch applicants and start ranking."
         )
-
-        with st.expander(label, expanded=expand):
-            for role in roles:
-                _render_role_card(role)
 
 
 def _render_role_card(role: dict):
