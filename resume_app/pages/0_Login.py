@@ -46,10 +46,12 @@ st.markdown("<div style='height:4vh;'></div>", unsafe_allow_html=True)
 
 left, col, right = st.columns([1, 1.4, 1])
 with col:
-    # Olympic logo — compact
+    # Olympic logo — centered within column
     logo_path = Path(__file__).resolve().parent.parent / "user_logo.png"
     if logo_path.exists():
-        st.image(str(logo_path), width=180)
+        _, logo_c, _ = st.columns([1, 2, 1])
+        with logo_c:
+            st.image(str(logo_path), width=160)
     else:
         st.markdown("<div style='height:1rem;'></div>", unsafe_allow_html=True)
 
