@@ -123,35 +123,25 @@ with st.sidebar:
     min_exp   = st.slider("Min Experience (yrs)", 0, 20, 0, 1)
     search    = st.text_input("Search (name, ID, email, degree...)", placeholder="Type to filter...")
 
-# ── Top tab strip: All Departments + one per active department ────────────────
-tab_labels = ["All Departments"] + [
-    f"{r['department']}  ({r['ranked_candidates']})" for r in dept_rows
-]
-
-# BUG-07 fix: when Home.py / Dashboard sets st.session_state["selected_dept"]
-# via the OPEN -> button, surface a banner pointing the user to the matching
-# tab. Streamlit's st.tabs has no native default-index API, so we cannot auto-
-# focus the tab; this banner is the least-invasive way to direct attention.
+# ── Landing or Detail mode ───────────────────────────────────────────────────
 _requested_dept = (st.session_state.get("selected_dept") or "").strip()
+
 if _requested_dept:
-    matched_idx = next(
-        (i for i, r in enumerate(dept_rows, start=1)
-         if r["department"] == _requested_dept),
-        0,
-    )
-    if matched_idx > 0:
-        st.info(
-            f"🏢 Showing department: **{_requested_dept}** — "
-            f"select its tab below ↓ (tab #{matched_idx})",
-            icon="🏢",
-        )
-        # Clear after surfacing once so it doesn't keep flashing on every rerun.
-        st.session_state.pop("selected_dept", None)
+    # Clear the incoming request so it does not flash on every rerun
+    st.session_state.pop("selected_dept", None)
 
-tabs = st.tabs(tab_labels)
-
-# ── All Departments overview tab ───────────────────────────────────────────────
-with tabs[0]:
+    # Filter tabs to the requested department only
+    matched = [r for r in dept_rows if r["department"] == _requested_dept]
+    if matched:
+        dept_rows = matched
+        tab_labels = [f"{r['department']}  ({r['ranked_candidates']})" for r in dept_rows]
+        tabs = st.tabs(tab_labels)
+    else:
+        st.warning(f"Department '{_requested_dept}' not found.")
+        tab_labels = []
+        tabs = []
+else:
+    # Landing: show clean welcome with overall stats
     totals = {
         "depts":       len(dept_rows),
         "candidates":  sum(r["total_candidates"]   for r in dept_rows),
@@ -181,9 +171,13 @@ with tabs[0]:
     st.markdown("<br>", unsafe_allow_html=True)
     st.info(
         "🎉 Welcome to Department Rankings.\n\n"
-        "Select a department tab above to explore ranked candidates by department and role."
+        "Go to the **Dashboard** and click **OPEN →** on any job posting to view "
+        "ranked candidates for that department and role."
     )
+    tab_labels = []
+    tabs = []
 
+# ── Per-department tabs ────────────────────────────────────────────────────────
 # ── Per-department tabs ────────────────────────────────────────────────────────
 
 
