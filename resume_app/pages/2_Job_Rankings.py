@@ -25,6 +25,7 @@ from db import (
     find_duplicate_applications,
     delete_candidate,
     delete_candidates_bulk,
+    delete_job,
     get_active_processing,
     render_processing_banner,
     init_theme,
@@ -503,7 +504,7 @@ def _render_role_card(role: dict):
         </div>
     """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns([1, 1])
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         if st.button("View Rankings →", key=f"open_{label}", use_container_width=True, type="primary"):
             st.session_state["jr_last_dept"] = _dept_for_label(label)
@@ -520,6 +521,29 @@ def _render_role_card(role: dict):
             st.session_state["jr_mode"]        = "detail"
             st.session_state["jr_incoming_via"] = "landing"
             st.rerun()
+    with col3:
+        confirm_key = f"jr_confirm_del_{label}"
+        if st.session_state.get(confirm_key):
+            st.warning("Delete this job?")
+            c_y, c_n = st.columns(2)
+            with c_y:
+                if st.button("Yes", key=f"jr_yes_del_{label}", type="primary", use_container_width=True):
+                    res = delete_job(label)
+                    st.success(
+                        f"Deleted `{label}` — {res['candidates_deleted']} candidate(s), "
+                        f"{res['audit_deleted']} audit row(s). "
+                        + ("Folder removed." if res["folder_removed"] else "Folder kept.")
+                    )
+                    st.session_state[confirm_key] = False
+                    st.rerun()
+            with c_n:
+                if st.button("No", key=f"jr_no_del_{label}", use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    st.rerun()
+        else:
+            if st.button("🗑️ Delete", key=f"jr_del_{label}", use_container_width=True):
+                st.session_state[confirm_key] = True
+                st.rerun()
 
 
 def _dept_for_label(job_label: str) -> str | None:
