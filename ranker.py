@@ -2198,8 +2198,29 @@ async def main_async(args):
         state["force_commit"] = True
     errors: list[tuple[str, str, str]] = []
 
+    async def _heartbeat():
+        """Write a heartbeat every 30s so the UI knows the ranker is alive."""
+        while True:
+            await asyncio.sleep(30)
+            await write_progress_async(log_lock, log_path, {
+                "event": "heartbeat",
+                "ts": datetime.datetime.now().isoformat(),
+                "pending_remaining": len(pending_files) - completed,
+            })
+
     connector = aiohttp.TCPConnector(limit=args.workers * 2)
     async with aiohttp.ClientSession(connector=connector) as session:
+        # Warm-up: hit Ollama once with keep_alive so model stays hot in VRAM
+        try:
+            print("[Warmup] Pinging Ollama to keep model resident...")
+            await call_ollama_async(
+                session, "warmup", "", args.job, "",
+                retries=1,
+            )
+            print("[Warmup] OK — model is hot.")
+        except Exception as e:
+            print(f"[Warmup] Note: {e}")
+
         tasks = [
             process_one(
                 txt_path, args.job, jd_text, jd_used_label, metadata,
@@ -2208,6 +2229,7 @@ async def main_async(args):
             )
             for txt_path in pending_files
         ]
+        heartbeat_task = asyncio.create_task(_heartbeat())
         completed = 0
         for coro in tqdm_asyncio.as_completed(tasks, total=len(tasks), desc="Ranking"):
             apply_id, name, err = await coro
@@ -2226,6 +2248,13 @@ async def main_async(args):
                             if not t.done():
                                 t.cancel()
                         break
+
+    # Stop heartbeat
+    heartbeat_task.cancel()
+    try:
+        await heartbeat_task
+    except asyncio.CancelledError:
+        pass
 
     # Flush any remaining commits
     try:
