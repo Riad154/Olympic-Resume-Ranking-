@@ -17,7 +17,7 @@ from pathlib import Path
 import requests
 import streamlit as st
 
-from db import get_css, init_theme, render_sidebar, _is_streamlit_cloud, FAVICON
+from db import get_css, init_theme, render_sidebar, _is_streamlit_cloud, FAVICON, safe_switch_page
 
 
 # ── Config / paths ────────────────────────────────────────────────────────────
@@ -43,177 +43,177 @@ if not st.session_state.get("user"):
     st.stop()
 
 
-    st.markdown('<div class="page-title">Processing Status</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="page-sub">Ranker &amp; scraper status on Streamlit Cloud</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+st.markdown('<div class="page-title">Processing Status</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="page-sub">Ranker &amp; scraper status on Streamlit Cloud</div>',
+    unsafe_allow_html=True,
+)
+st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    # ── Sidebar: job selector + refresh controls ───────────────────────────────
-    job_labels = []
+# ── Sidebar: job selector + refresh controls ───────────────────────────────
+job_labels = []
+try:
+    from db import get_conn
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT job_label FROM jobs ORDER BY updated_at DESC")
+        job_labels = [r[0] for r in cur.fetchall() if r[0]]
+except Exception:
+    pass
+
+if not job_labels:
     try:
-        from db import get_conn
-        conn = get_conn()
-        with conn.cursor() as cur:
-            cur.execute("SELECT job_label FROM jobs ORDER BY updated_at DESC")
-            job_labels = [r[0] for r in cur.fetchall() if r[0]]
+        job_labels = list_job_folders()
     except Exception:
         pass
 
-    if not job_labels:
-        try:
-            job_labels = list_job_folders()
-        except Exception:
-            pass
-
-    if not job_labels:
-        st.warning("No jobs found. Create a job on the New Job Posting page first.")
-        st.stop()
-
-    with st.sidebar:
-        st.header("Job")
-        selected_job = st.selectbox("Select job", job_labels, index=0)
-        auto_refresh = st.checkbox("Auto-refresh (3s)", value=True)
-        refresh_now = st.button("Refresh now")
-
-    # ── Fetch per-job DB stats ────────────────────────────────────────────────
-    db_stats = {
-        "total": 0, "ranked": 0, "errors": 0,
-        "recent": [], "err_rows": [],
-    }
-    try:
-        from db import get_conn
-        conn = get_conn()
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT COUNT(*) FROM candidates WHERE job_label = %s",
-                (selected_job,)
-            )
-            db_stats["total"] = cur.fetchone()[0]
-            cur.execute(
-                "SELECT COUNT(*) FROM candidates WHERE job_label = %s AND overall_score IS NOT NULL",
-                (selected_job,)
-            )
-            db_stats["ranked"] = cur.fetchone()[0]
-            cur.execute(
-                "SELECT COUNT(*) FROM candidates WHERE job_label = %s AND rank_error IS NOT NULL AND rank_error != ''",
-                (selected_job,)
-            )
-            db_stats["errors"] = cur.fetchone()[0]
-            cur.execute("""
-                SELECT apply_id, candidate_name, overall_score, recommendation, ranked_at, rank_error
-                FROM candidates
-                WHERE job_label = %s AND overall_score IS NOT NULL
-                ORDER BY ranked_at DESC NULLS LAST
-                LIMIT 10
-            """, (selected_job,))
-            db_stats["recent"] = cur.fetchall()
-            cur.execute("""
-                SELECT apply_id, candidate_name, rank_error, ranked_at
-                FROM candidates
-                WHERE job_label = %s AND rank_error IS NOT NULL AND rank_error != ''
-                ORDER BY ranked_at DESC NULLS LAST
-            """, (selected_job,))
-            db_stats["err_rows"] = cur.fetchall()
-    except Exception as e:
-        st.error(f"Database error: {e}")
-
-    total   = db_stats["total"]
-    ranked  = db_stats["ranked"]
-    errors  = db_stats["errors"]
-    recent  = db_stats["recent"]
-    err_rows = db_stats["err_rows"]
-
-    # ── GitHub Actions status (compact) ────────────────────────────────────────
-    with st.expander("🚀 GitHub Actions — BDJobs Scraper", expanded=False):
-        try:
-            sys.path.insert(0, str(BASE_DIR / "scripts"))
-            from github_actions import _get_token, _get_repo, get_latest_run_status
-            token = _get_token()
-            repo = _get_repo()
-            if token:
-                run = get_latest_run_status(repo, token)
-                if run.get("status") == "error":
-                    st.error(f"Could not fetch run status: {run.get('msg', 'Unknown error')}")
-                else:
-                    status = run.get("status", "unknown")
-                    conclusion = run.get("conclusion", "—")
-                    created = run.get("created_at", "—")
-                    url = run.get("html_url", f"https://github.com/{repo}/actions")
-                    status_icon = {
-                        "completed": "✅", "in_progress": "🔄",
-                        "queued": "⏳", "waiting": "⏳", "requested": "⏳",
-                    }.get(status, "❓")
-                    st.markdown(f"**Latest run:** {status_icon} `{status}` — conclusion: `{conclusion}`")
-                    st.markdown(f"**Created:** {created}")
-                    st.link_button("View on GitHub →", url, type="secondary")
-            else:
-                st.warning("No GH_TOKEN configured.")
-        except Exception as e:
-            st.error(f"Failed to fetch GitHub Actions status: {e}")
-
-    # ── Top metrics bar (matches local layout) ─────────────────────────────────
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total", total)
-    c2.metric("Processed", ranked)
-    c3.metric("✅ OK", max(0, ranked - errors))
-    c4.metric("⚠ Errors", errors)
-    remaining = max(0, total - ranked)
-    c5.metric("⏳ Remaining", remaining)
-
-    pct = (ranked / total) if total else 0.0
-    st.progress(min(1.0, pct), text=f"Ranked {ranked} of {total or '?'} candidates")
-
-    # ── Database activity (matches local "Last 10 processed") ──────────────────
-    st.subheader("Last 10 processed")
-    if recent:
-        rows = []
-        for r in recent:
-            apply_id, name, score, rec, ts, err = r
-            ts_str = str(ts)[-8:] if ts else "—"
-            rows.append({
-                "When": ts_str,
-                "Apply ID": apply_id or "",
-                "Name": name or "",
-                "Score": score if score is not None else "—",
-                "Verdict": rec or "",
-                "Note": "" if not err else err[:80],
-            })
-        st.dataframe(rows, use_container_width=True, hide_index=True)
-    else:
-        st.caption("No candidates processed yet for this job.")
-
-    # ── Errors expander (matches local) ────────────────────────────────────────
-    with st.expander(f"Errored candidates ({len(err_rows)})", expanded=False):
-        if err_rows:
-            st.dataframe(
-                [{
-                    "Apply ID": r[0] or "",
-                    "Name":     r[1] or "",
-                    "Error":    r[2] or "",
-                    "When":     str(r[3]) if r[3] else "",
-                } for r in err_rows],
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.caption("No errors so far.")
-
-    # ── Auto refresh ───────────────────────────────────────────────────────────
-    if auto_refresh:
-        time.sleep(3)
-        st.rerun()
-    elif refresh_now:
-        st.rerun()
-
+if not job_labels:
+    st.warning("No jobs found. Create a job on the New Job Posting page first.")
     st.stop()
 
+with st.sidebar:
+    st.header("Job")
+    selected_job = st.selectbox("Select job", job_labels, index=0)
+    auto_refresh = st.checkbox("Auto-refresh (3s)", value=True)
+    refresh_now = st.button("Refresh now")
+
+# ── Fetch per-job DB stats ────────────────────────────────────────────────
+db_stats = {
+    "total": 0, "ranked": 0, "errors": 0,
+    "recent": [], "err_rows": [],
+}
+try:
+    from db import get_conn
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM candidates WHERE job_label = %s",
+            (selected_job,)
+        )
+        db_stats["total"] = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COUNT(*) FROM candidates WHERE job_label = %s AND overall_score IS NOT NULL",
+            (selected_job,)
+        )
+        db_stats["ranked"] = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COUNT(*) FROM candidates WHERE job_label = %s AND rank_error IS NOT NULL AND rank_error != ''",
+            (selected_job,)
+        )
+        db_stats["errors"] = cur.fetchone()[0]
+        cur.execute("""
+            SELECT apply_id, candidate_name, overall_score, recommendation, ranked_at, rank_error
+            FROM candidates
+            WHERE job_label = %s AND overall_score IS NOT NULL
+            ORDER BY ranked_at DESC NULLS LAST
+            LIMIT 10
+        """, (selected_job,))
+        db_stats["recent"] = cur.fetchall()
+        cur.execute("""
+            SELECT apply_id, candidate_name, rank_error, ranked_at
+            FROM candidates
+            WHERE job_label = %s AND rank_error IS NOT NULL AND rank_error != ''
+            ORDER BY ranked_at DESC NULLS LAST
+        """, (selected_job,))
+        db_stats["err_rows"] = cur.fetchall()
+except Exception as e:
+    st.error(f"Database error: {e}")
+
+total   = db_stats["total"]
+ranked  = db_stats["ranked"]
+errors  = db_stats["errors"]
+recent  = db_stats["recent"]
+err_rows = db_stats["err_rows"]
+
+# ── GitHub Actions status (compact) ────────────────────────────────────────
+with st.expander("🚀 GitHub Actions — BDJobs Scraper", expanded=False):
+    try:
+        sys.path.insert(0, str(BASE_DIR / "scripts"))
+        from github_actions import _get_token, _get_repo, get_latest_run_status
+        token = _get_token()
+        repo = _get_repo()
+        if token:
+            run = get_latest_run_status(repo, token)
+            if run.get("status") == "error":
+                st.error(f"Could not fetch run status: {run.get('msg', 'Unknown error')}")
+            else:
+                status = run.get("status", "unknown")
+                conclusion = run.get("conclusion", "—")
+                created = run.get("created_at", "—")
+                url = run.get("html_url", f"https://github.com/{repo}/actions")
+                status_icon = {
+                    "completed": "✅", "in_progress": "🔄",
+                    "queued": "⏳", "waiting": "⏳", "requested": "⏳",
+                }.get(status, "❓")
+                st.markdown(f"**Latest run:** {status_icon} `{status}` — conclusion: `{conclusion}`")
+                st.markdown(f"**Created:** {created}")
+                st.link_button("View on GitHub →", url, type="secondary")
+        else:
+            st.warning("No GH_TOKEN configured.")
+    except Exception as e:
+        st.error(f"Failed to fetch GitHub Actions status: {e}")
+
+# ── Top metrics bar (matches local layout) ─────────────────────────────────
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Total", total)
+c2.metric("Processed", ranked)
+c3.metric("✅ OK", max(0, ranked - errors))
+c4.metric("⚠ Errors", errors)
+remaining = max(0, total - ranked)
+c5.metric("⏳ Remaining", remaining)
+
+pct = (ranked / total) if total else 0.0
+st.progress(min(1.0, pct), text=f"Ranked {ranked} of {total or '?'} candidates")
+
+# ── Database activity (matches local "Last 10 processed") ──────────────────
+st.subheader("Last 10 processed")
+if recent:
+    rows = []
+    for r in recent:
+        apply_id, name, score, rec, ts, err = r
+        ts_str = str(ts)[-8:] if ts else "—"
+        rows.append({
+            "When": ts_str,
+            "Apply ID": apply_id or "",
+            "Name": name or "",
+            "Score": score if score is not None else "—",
+            "Verdict": rec or "",
+            "Note": "" if not err else err[:80],
+        })
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+else:
+    st.caption("No candidates processed yet for this job.")
+
+# ── Errors expander (matches local) ────────────────────────────────────────
+with st.expander(f"Errored candidates ({len(err_rows)})", expanded=False):
+    if err_rows:
+        st.dataframe(
+            [{
+                "Apply ID": r[0] or "",
+                "Name":     r[1] or "",
+                "Error":    r[2] or "",
+                "When":     str(r[3]) if r[3] else "",
+            } for r in err_rows],
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.caption("No errors so far.")
+
+# ── Auto refresh ───────────────────────────────────────────────────────────
+if auto_refresh:
+    time.sleep(3)
+    st.rerun()
+elif refresh_now:
+    st.rerun()
+
+st.stop()
+
 st.set_page_config(
-    page_title="Processing Status — HR Intelligence",
-    page_icon=FAVICON,
-    layout="wide",
-    initial_sidebar_state="expanded",
+page_title="Processing Status — HR Intelligence",
+page_icon=FAVICON,
+layout="wide",
+initial_sidebar_state="expanded",
 )
 init_theme()
 st.markdown(get_css(), unsafe_allow_html=True)
@@ -221,8 +221,8 @@ render_sidebar()
 
 st.markdown('<div class="page-title">Processing Status</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="page-sub">Live ranker progress · GPU &amp; Ollama health</div>',
-    unsafe_allow_html=True,
+'<div class="page-sub">Live ranker progress · GPU &amp; Ollama health</div>',
+unsafe_allow_html=True,
 )
 st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
