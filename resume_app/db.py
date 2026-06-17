@@ -2029,6 +2029,57 @@ def clear_job_candidates(job_label: str) -> int:
         conn.close()
 
 
+def delete_job(job_label: str, delete_folder: bool = True) -> dict:
+    """Fully delete a job posting and all associated data.
+
+    Steps:
+        1. Delete all candidates for this job.
+        2. Delete audit log entries for this job.
+        3. Delete the job row itself.
+        4. Optionally delete the downloaded_resumes/<job_label> folder.
+
+    Returns a dict with counts: {candidates_deleted, audit_deleted, job_deleted, folder_removed}.
+    """
+    from pathlib import Path as _P
+    import shutil
+
+    results = {"candidates_deleted": 0, "audit_deleted": 0, "job_deleted": 0, "folder_removed": False}
+    conn = fresh_conn()
+    try:
+        with conn.cursor() as cur:
+            # 1. Audit logs
+            try:
+                cur.execute("DELETE FROM hr_audit_log WHERE job_label = %s", (job_label,))
+                results["audit_deleted"] = cur.rowcount
+            except Exception:
+                pass
+            # 2. Candidates
+            cur.execute("DELETE FROM candidates WHERE job_label = %s", (job_label,))
+            results["candidates_deleted"] = cur.rowcount
+            # 3. Job record
+            cur.execute("DELETE FROM jobs WHERE job_label = %s", (job_label,))
+            results["job_deleted"] = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+
+    # 4. File-system folder
+    if delete_folder:
+        resumes_base = _P(os.environ.get(
+            "RESUMES_BASE",
+            str(_P(__file__).resolve().parent.parent / "downloaded_resumes"),
+        ))
+        job_folder = resumes_base / job_label
+        if job_folder.exists():
+            try:
+                shutil.rmtree(job_folder)
+                results["folder_removed"] = True
+            except Exception:
+                pass
+
+    return results
+
+
 def save_hr_override(job_label: str, apply_id: str, override: str, note: str,
                       hr_user: str = "HR"):
     """Update hr_override on the candidates row AND append a row to
