@@ -12,6 +12,7 @@ import pandas as pd
 from db import (
     get_conn,
     create_user,
+    reset_user_password,
     list_users,
     toggle_user_active,
     get_audit_logs,
@@ -122,17 +123,49 @@ if users:
     with manage_cols[0]:
         target_user = st.selectbox("Select user", [u["username"] for u in users if u["username"] != user["username"]], key="manage_user")
     with manage_cols[1]:
-        action = st.selectbox("Action", ["Disable", "Enable"], key="user_action")
+        action = st.selectbox("Action", ["Disable", "Enable", "Reset Password"], key="user_action")
     with manage_cols[2]:
         st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
         if st.button("Apply", use_container_width=True):
             target = next((u for u in users if u["username"] == target_user), None)
-            if target:
+            if not target:
+                st.error("User not found.")
+            elif action == "Reset Password":
+                st.session_state["reset_target_user"] = target_user
+                st.rerun()
+            else:
                 is_active = (action == "Enable")
                 toggle_user_active(conn, target["id"], is_active)
                 st.success(f"User '{target_user}' is now {'enabled' if is_active else 'disabled'}.")
                 log_audit(conn, user["id"], user["username"], f"{action.upper()}_USER",
                           target_type="user", target_id=target_user)
+                st.rerun()
+
+    if st.session_state.get("reset_target_user"):
+        st.markdown("<div class='section-hd' style='margin-top:1rem;'>Reset Password</div>", unsafe_allow_html=True)
+        st.info(f"Resetting password for **{st.session_state['reset_target_user']}**")
+        pw1 = st.text_input("New password", type="password", key="reset_pw1")
+        pw2 = st.text_input("Confirm password", type="password", key="reset_pw2")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Confirm Reset", type="primary", use_container_width=True):
+                if not pw1 or len(pw1) < 6:
+                    st.error("Password must be at least 6 characters.")
+                elif pw1 != pw2:
+                    st.error("Passwords do not match.")
+                else:
+                    ok, msg = reset_user_password(conn, st.session_state["reset_target_user"], pw1)
+                    if ok:
+                        st.success(msg)
+                        log_audit(conn, user["id"], user["username"], "PASSWORD_RESET",
+                                  target_type="user", target_id=st.session_state["reset_target_user"])
+                        del st.session_state["reset_target_user"]
+                        st.rerun()
+                    else:
+                        st.error(msg)
+        with c2:
+            if st.button("Cancel", use_container_width=True):
+                del st.session_state["reset_target_user"]
                 st.rerun()
 else:
     st.info("No users found. Create the first user above.")

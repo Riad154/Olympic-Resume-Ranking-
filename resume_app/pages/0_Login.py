@@ -14,7 +14,6 @@ import streamlit as st
 from db import (
     get_conn,
     authenticate_user,
-    reset_user_password,
     log_audit,
     render_sidebar,
     init_theme,
@@ -97,46 +96,22 @@ with col:
         password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_pass")
         submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
 
-        if submitted:
-            if not username or not password:
-                st.error("Please enter both username and password.")
-            else:
-                try:
-                    conn = get_conn()
-                    user = authenticate_user(conn, username.strip(), password)
-                    if user:
-                        st.session_state["user"] = user
-                        log_audit(conn, user["id"], user["username"], "LOGIN")
-                        st.success(f"Welcome, **{user['display_name']}**!")
-                        st.balloons()
-                        st.rerun()
-                    else:
-                        log_audit(conn, None, username.strip(), "LOGIN_FAILED",
-                                  details="Invalid credentials")
-                        st.error("Invalid username or password. Please try again.")
-                except Exception as e:
-                    st.error(f"Login error: {e}")
-
-    # ── Emergency admin password reset ─────────────────────────────────────────
-    with st.expander("🔧 Admin Password Reset (emergency only)", expanded=False):
-        st.warning("Use this only if the admin password is lost.")
-        admin_user = st.text_input("Admin username", value="admin", key="reset_admin_user")
-        new_pass = st.text_input("New password", type="password", key="reset_admin_pass")
-        confirm_pass = st.text_input("Confirm new password", type="password", key="reset_admin_confirm")
-        if st.button("Reset Password", type="secondary", use_container_width=True):
-            if not new_pass or len(new_pass) < 6:
-                st.error("Password must be at least 6 characters.")
-            elif new_pass != confirm_pass:
-                st.error("Passwords do not match.")
-            else:
-                try:
-                    conn = get_conn()
-                    ok, msg = reset_user_password(conn, admin_user.strip(), new_pass)
-                    if ok:
-                        st.success(msg)
-                        log_audit(conn, None, admin_user.strip(), "PASSWORD_RESET",
-                                  details="Emergency password reset")
-                    else:
-                        st.error(msg)
-                except Exception as e:
-                    st.error(f"Reset error: {e}")
+    if submitted:
+        if not username or not password:
+            st.error("Please enter both username and password.")
+        else:
+            try:
+                conn = get_conn()
+                user = authenticate_user(conn, username.strip(), password)
+                if user:
+                    st.session_state["user"] = user
+                    log_audit(conn, user["id"], user["username"], "LOGIN")
+                    st.success(f"Welcome, **{user['display_name']}**!")
+                    st.balloons()
+                    st.rerun()
+                else:
+                    log_audit(conn, None, username.strip(), "LOGIN_FAILED",
+                              details="Invalid credentials")
+                    st.error("Invalid username or password. Please try again.")
+            except Exception as e:
+                st.error(f"Login error: {e}")
