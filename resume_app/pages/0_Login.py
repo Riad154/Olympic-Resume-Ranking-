@@ -40,45 +40,17 @@ if st.session_state.get("user"):
     if st.button("Go to Dashboard", type="primary", use_container_width=True):
         safe_switch_page("Home.py")
 
-    # ── Olympic Industries PLC × HR branded banner ─────────────────────────────
-    st.markdown("<div style='height:2.5rem'></div>", unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div style="
-            background: linear-gradient(135deg, #C8102E 0%, #9B0B23 50%, #C8102E 100%);
-            border-radius: 14px;
-            padding: 2.2rem 2rem;
-            margin-top: 0.5rem;
-            text-align: center;
-            box-shadow: 0 6px 20px rgba(200,16,46,0.25);
-            color: #FFFFFF;
-        ">
-            <div style="font-size: 2.2rem; margin-bottom: 0.6rem;">🏭 ⚽ 🏆</div>
-            <div style="font-size: 1.15rem; font-weight: 700; letter-spacing: 0.4px; margin-bottom: 0.4rem;">
-                Olympic Industries PLC — Human Resources
-            </div>
-            <div style="font-size: 0.88rem; color: rgba(255,255,255,0.85); line-height: 1.5; max-width: 520px; margin: 0 auto;">
-                Empowering talent across Bangladesh &amp; beyond.<br>
-                Where world-class manufacturing meets world-class people.
-            </div>
-            <div style="margin-top: 1.2rem; display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;">
-                <div style="text-align: center;">
-                    <div style="font-size: 1.3rem; font-weight: 700;">1979</div>
-                    <div style="font-size: 0.7rem; color: rgba(255,255,255,0.65);">ESTABLISHED</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="font-size: 1.3rem; font-weight: 700;">2,500+</div>
-                    <div style="font-size: 0.7rem; color: rgba(255,255,255,0.65);">EMPLOYEES</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="font-size: 1.3rem; font-weight: 700;">48+</div>
-                    <div style="font-size: 0.7rem; color: rgba(255,255,255,0.65);">EXPORT MARKETS</div>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # ── Olympic Industries PLC × HR Excellence banner image ────────────────────
+    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
+    banner_path = Path(__file__).resolve().parent.parent / "assets" / "hr_excellence_banner.png"
+    if banner_path.exists():
+        st.image(str(banner_path), use_container_width=True)
+    else:
+        st.info(
+            "📁 Place the HR Excellence banner image at:\n\n"
+            f"`{banner_path}`\n\n"
+            "It will appear here automatically once saved."
+        )
     st.stop()
 
 # ── Login form (compact, no-scroll) ────────────────────────────────────────────
