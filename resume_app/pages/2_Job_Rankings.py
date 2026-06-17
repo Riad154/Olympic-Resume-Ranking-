@@ -751,8 +751,8 @@ def render_detail():
         with c2:
             if len(selected_compare) < 2:
                 st.caption("Select at least 2 candidates to compare.")
-            elif len(selected_compare) > 3:
-                st.caption("Maximum 3 candidates allowed. Please remove some.")
+            elif len(selected_compare) > 4:
+                st.caption("Maximum 4 candidates allowed. Please remove some.")
             else:
                 st.caption(f"Ready: {len(selected_compare)} candidates selected.")
 

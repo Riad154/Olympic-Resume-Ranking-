@@ -102,7 +102,7 @@ if len(compare_ids) < 2:
 
     st.markdown(
         f'<div style="font-size:0.9rem;color:{sub_col};margin-bottom:0.4rem;">'
-        f'Pick 2–3 ranked candidates from <b>{compare_job}</b>:</div>',
+        f'Pick 2–4 ranked candidates from <b>{compare_job}</b>:</div>',
         unsafe_allow_html=True,
     )
     cand_options = {
@@ -122,8 +122,8 @@ if len(compare_ids) < 2:
     if len(compare_ids) < 2:
         st.caption("Select at least 2 candidates to compare.")
         st.stop()
-    elif len(compare_ids) > 3:
-        st.caption("Maximum 3 candidates allowed. Please remove some.")
+    elif len(compare_ids) > 4:
+        st.caption("Maximum 4 candidates allowed. Please remove some.")
         st.stop()
     else:
         # Candidates selected — proceed to comparison
