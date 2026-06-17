@@ -1,6 +1,6 @@
 """
-Home.py — Dashboard.  Department-grouped job postings, live metrics, and
-a quick UI to assign departments to Uncategorized jobs.
+Home.py — Dashboard. Department-grouped job postings, live metrics,
+department activity, recent jobs, active processing alerts, and quick actions.
 
 Run: streamlit run resume_app/Home.py
 """
@@ -9,6 +9,7 @@ import streamlit as st
 from db import (
     get_conn,
     fetch_all_jobs, fetch_departments, fetch_global_stats, set_job_department,
+    get_active_processing,
     get_css, init_theme, render_sidebar, safe_switch_page,
     DEPARTMENT_LIST, FAVICON,
 )
@@ -37,6 +38,7 @@ except Exception as e:
 stats     = fetch_global_stats(conn)
 jobs_df   = fetch_all_jobs(conn)
 dept_rows = fetch_departments(conn)
+active_runs = get_active_processing()
 
 # ── Colour tokens ──────────────────────────────────────────────────────────────
 is_day   = st.session_state.get("day_mode", True)
@@ -49,15 +51,15 @@ bar_fill = "#C8102E"
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 st.markdown(
-    f'<div class="page-title" style="color:{txt_col} !important;">Dashboard</div>',
+    f'''<div class="page-title" style="color:{txt_col} !important;">Dashboard</div>''',
     unsafe_allow_html=True,
 )
 st.markdown(
-    '<div class="page-sub">AI-powered resume ranking pipeline — Olympic Industries PLC</div>',
+    '''<div class="page-sub">AI-powered resume ranking pipeline — Olympic Industries PLC</div>''',
     unsafe_allow_html=True,
 )
 st.markdown(
-    f'<hr class="divider" style="border-top:1px solid {card_bdr}">',
+    f'''<hr class="divider" style="border-top:1px solid {card_bdr}">''',
     unsafe_allow_html=True,
 )
 
@@ -101,35 +103,172 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Metrics strip (now 5 live cards) ───────────────────────────────────────────
+# ── Metrics strip (6 live cards) ───────────────────────────────────────────────
 active_depts = len(dept_rows)
 total_short  = sum(r.get("shortlist", 0) for r in dept_rows)
+ranked_count = stats["total_candidates"] - stats["pending"]
+rank_pct     = round((ranked_count / stats["total_candidates"] * 100), 1) if stats["total_candidates"] else 0
 
 metrics = [
-    (active_depts,                     "Active Departments"),
-    (stats["total_jobs"],              "Job Postings"),
-    (stats["total_candidates"],        "Total Candidates"),
-    (stats["total_candidates"] - stats["pending"], "Ranked"),
-    (total_short,                      "🟢 Shortlists"),
+    (active_depts,              "Active Departments"),
+    (stats["total_jobs"],       "Job Postings"),
+    (stats["total_candidates"], "Total Candidates"),
+    (stats["pending"],          "⏳ Pending"),
+    (ranked_count,              f"⭐ Ranked  ({rank_pct}%)"),
+    (total_short,               "🟢 Shortlists"),
 ]
-for col, (val, lbl) in zip(st.columns(5), metrics):
+for col, (val, lbl) in zip(st.columns(6), metrics):
     with col:
         st.markdown(
-            f"""
+            f'''
             <div class="metric-card">
                 <div class="metric-val" style="color:{txt_col} !important;">{val}</div>
                 <div class="metric-lbl" style="color:{sub_col} !important;">{lbl}</div>
             </div>
-            """,
+            ''',
             unsafe_allow_html=True,
         )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+# ── Two-column: Department Activity + Quick Actions / Active Runs ────────────
+col_left, col_right = st.columns([2, 1])
+
+with col_left:
+    st.markdown(
+        f'''<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
+        'Department Activity</div>''',
+        unsafe_allow_html=True,
+    )
+    if dept_rows:
+        for d in dept_rows:
+            dept_name = d["department"]
+            total_c   = d["total_candidates"]
+            ranked_c  = d["ranked_candidates"]
+            short_c   = d["shortlist"]
+            maybe_c   = d["maybe"]
+            reject_c  = d["reject"]
+            progress  = (ranked_c / total_c) if total_c else 0
+            progress_color = "#16A34A" if progress >= 1 else ("#EAB308" if progress >= 0.5 else "#C8102E")
+
+            st.markdown(
+                f'''
+                <div style="background:{card_bg};border:1px solid {card_bdr};border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:0.6rem;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                        <div style="font-weight:700;font-size:0.95rem;color:{txt_col} !important;">{dept_name}</div>
+                        <div style="font-size:0.78rem;color:{sub_col} !important;">{d["job_count"]} job(s) · {total_c} candidate(s)</div>
+                    </div>
+                    <div style="background:{bar_bg};border-radius:6px;height:8px;overflow:hidden;margin-bottom:0.5rem;">
+                        <div style="width:{progress*100:.1f}%;background:{progress_color};height:100%;border-radius:6px;transition:width 0.3s;"></div>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                        <span class="verdict-badge verdict-shortlist">🟢 {short_c} Shortlist</span>
+                        <span class="verdict-badge verdict-maybe">🟡 {maybe_c} Maybe</span>
+                        <span class="verdict-badge verdict-reject">🔴 {reject_c} Reject</span>
+                    </div>
+                </div>
+                ''',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("No department data yet. Create job postings and upload CVs to get started.")
+
+with col_right:
+    # Quick Actions
+    st.markdown(
+        f'''<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
+        'Quick Actions</div>''',
+        unsafe_allow_html=True,
+    )
+    qa_col1, qa_col2 = st.columns(2)
+    with qa_col1:
+        if st.button("➕ New Job", use_container_width=True, type="secondary"):
+            safe_switch_page("pages/5_New_Job_Posting.py")
+        if st.button("📊 Job Rankings", use_container_width=True, type="secondary"):
+            safe_switch_page("pages/2_Job_Rankings.py")
+    with qa_col2:
+        if st.button("⬆️ Upload CVs", use_container_width=True, type="secondary"):
+            safe_switch_page("pages/3_Upload_CVs.py")
+        if st.button("⚙️ Processing", use_container_width=True, type="secondary"):
+            safe_switch_page("pages/4_Processing_Status.py")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Active Processing
+    st.markdown(
+        f'''<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
+        'Live Processing</div>''',
+        unsafe_allow_html=True,
+    )
+    running = [r for r in active_runs if r["is_running"]]
+    if running:
+        for run in running:
+            job = run["job"]
+            proc = run["processed"]
+            tot  = run["total"]
+            errs = run["errors"]
+            pct  = (proc / tot * 100) if tot else 0
+            st.markdown(
+                f'''
+                <div style="background:{card_bg};border:1px solid {card_bdr};border-left:4px solid #3B82F6;border-radius:10px;padding:0.8rem 1rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                    <div style="font-weight:600;font-size:0.9rem;color:{txt_col} !important;margin-bottom:0.3rem;">{job}</div>
+                    <div style="background:{bar_bg};border-radius:6px;height:6px;overflow:hidden;margin-bottom:0.4rem;">
+                        <div style="width:{pct:.0f}%;background:#3B82F6;height:100%;border-radius:6px;"></div>
+                    </div>
+                    <div style="font-size:0.75rem;color:{sub_col} !important;">{proc}/{tot} processed · {errs} error(s)</div>
+                </div>
+                ''',
+                unsafe_allow_html=True,
+            )
+    else:
+        done_recent = [r for r in active_runs if r["done"]]
+        if done_recent:
+            st.markdown(
+                f'''<div style="font-size:0.85rem;color:{sub_col} !important;">✅ {len(done_recent)} recent run(s) completed. All quiet now.</div>''',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f'''<div style="font-size:0.85rem;color:{sub_col} !important;">🟢 No active ranking runs. Start one from <b>Processing Status</b>.</div>''',
+                unsafe_allow_html=True,
+            )
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ── Recent Jobs table ──────────────────────────────────────────────────────────
+st.markdown(
+    f'''<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
+    'Recent Jobs</div>''',
+    unsafe_allow_html=True,
+)
+if not jobs_df.empty:
+    display_df = jobs_df[["job_label", "department", "total", "ranked", "shortlisted", "avg_score", "status", "last_ranked_at"]].copy()
+    display_df.columns = ["Job", "Department", "Candidates", "Ranked", "Shortlist", "Avg Score", "Status", "Last Ranked"]
+    # Add completion %
+    display_df["Progress"] = display_df.apply(
+        lambda r: f"{(r['Ranked'] / r['Candidates'] * 100):.0f}%" if r["Candidates"] > 0 else "—", axis=1
+    )
+    # Status badge helper
+    def _status_badge(s):
+        if s == "active":
+            return "🟢 Active"
+        elif s == "completed":
+            return "✅ Done"
+        elif s == "paused":
+            return "⏸️ Paused"
+        return f"⚪ {s.title()}"
+    display_df["Status"] = display_df["Status"].apply(_status_badge)
+    display_df = display_df[["Job", "Department", "Candidates", "Ranked", "Progress", "Shortlist", "Avg Score", "Status", "Last Ranked"]]
+    st.dataframe(display_df.head(12), use_container_width=True, hide_index=True)
+else:
+    st.info("No jobs yet. Click **New Job** in Quick Actions to create your first posting.")
+
+st.markdown("<br>", unsafe_allow_html=True)
+
 # ── Quick-jump: Department + Job selector ─────────────────────────────────────
 st.markdown(
-    f'<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
-    'Open Rankings</div>',
+    f'''<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
+    'Open Rankings</div>''',
     unsafe_allow_html=True,
 )
 
@@ -169,8 +308,8 @@ if not jobs_df.empty:
     if not uncategorised.empty:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(
-            f'<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
-            f'Assign Departments  ·  {len(uncategorised)} pending</div>',
+            f'''<div class="section-hd" style="color:{sub_col} !important;border-bottom:1px solid {card_bdr};">'
+            f'Assign Departments  ·  {len(uncategorised)} pending</div>''',
             unsafe_allow_html=True,
         )
         st.caption(
@@ -182,8 +321,8 @@ if not jobs_df.empty:
             col_lbl, col_sel, col_btn = st.columns([4, 3, 1])
             with col_lbl:
                 st.markdown(
-                    f'<div style="padding-top:0.6rem;font-size:0.9rem;'
-                    f'color:{txt_col} !important;">{label}</div>',
+                    f'''<div style="padding-top:0.6rem;font-size:0.9rem;'
+                    f'color:{txt_col} !important;">{label}</div>''',
                     unsafe_allow_html=True,
                 )
             with col_sel:
