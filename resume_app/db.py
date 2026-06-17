@@ -1404,6 +1404,25 @@ def create_user(conn, username: str, password: str, display_name: str | None = N
         return False, f"Error creating user: {e}"
 
 
+def reset_user_password(conn, username: str, new_password: str) -> tuple[bool, str]:
+    """Reset a user's password. Returns (success, message)."""
+    if not username or not new_password:
+        return False, "Username and new password are required."
+    if len(new_password) < 6:
+        return False, "Password must be at least 6 characters."
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET password_hash = %s WHERE username = %s",
+                (_hash_password(new_password), username),
+            )
+            if cur.rowcount == 0:
+                return False, f"User '{username}' not found."
+        return True, f"Password for '{username}' has been reset."
+    except Exception as e:
+        return False, f"Error resetting password: {e}"
+
+
 def list_users(conn) -> list[dict]:
     """Return all users ordered by creation date."""
     with conn.cursor() as cur:
