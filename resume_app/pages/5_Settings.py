@@ -11,7 +11,7 @@ import requests
 import psycopg2
 import streamlit as st
 from db import (
-    get_conn, get_css, init_theme, render_sidebar, PG_CONN, pg_is_configured, FAVICON, log_audit,
+    get_conn, get_css, init_theme, render_sidebar, safe_switch_page, PG_CONN, pg_is_configured, FAVICON, log_audit,
     fetch_all_jobs, fetch_job, get_job_department, update_job_status, update_job,
     fix_inconsistent_verdicts, associate_candidates_with_job,
     get_bdjobs_credentials, save_bdjobs_credentials,
