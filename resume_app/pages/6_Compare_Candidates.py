@@ -11,7 +11,7 @@ import streamlit as st
 import pandas as pd
 
 from db import (
-    get_conn, fetch_candidates, get_css, init_theme, render_sidebar, safe_switch_page,
+    get_conn, fetch_candidates, fetch_all_jobs, get_css, init_theme, render_sidebar, safe_switch_page,
     SCORE_DIMS, VERDICT_CFG, _build_detail_columns,
 )
 
@@ -49,26 +49,85 @@ st.markdown(
 st.markdown(f'<hr class="divider" style="border-top:1px solid {card_bdr}">',
             unsafe_allow_html=True)
 
-# ── Session state -----------------------------------------------------------------
-compare_ids = st.session_state.get("compare_ids") or []
-compare_job = st.session_state.get("compare_job") or ""
-
-if not compare_job or len(compare_ids) < 2:
-    st.info(
-        "No candidates queued for comparison. Open **Job Rankings**, expand "
-        "**“Compare candidates side-by-side”**, pick 2–3 candidates, then "
-        "click *Open Comparison*.",
-    )
-    if st.button("← Back to Job Rankings"):
-        safe_switch_page("pages/2_Job_Rankings.py")
-    st.stop()
-
 # ── Load -------------------------------------------------------------------------
 try:
     conn = get_conn()
 except Exception as e:
     st.error(f"Database connection failed: {e}")
     st.stop()
+
+# ── Standalone selectors ---------------------------------------------------------
+compare_ids = st.session_state.get("compare_ids") or []
+compare_job = st.session_state.get("compare_job") or ""
+
+jobs_df = fetch_all_jobs(conn)
+if jobs_df.empty:
+    st.info("No jobs available to compare. Create a job first.")
+    st.stop()
+
+# Job selector (if not pre-selected from Job Rankings)
+if not compare_job:
+    st.markdown(
+        f'<div style="font-size:0.9rem;color:{sub_col};margin-bottom:0.4rem;">'
+        f'Select a job to compare candidates:</div>',
+        unsafe_allow_html=True,
+    )
+    job_options = {
+        str(r["job_label"]): f"{r['job_label']} — {r.get('job_title', '') or 'Untitled'} ({r.get('department', 'Uncategorized')})"
+        for _, r in jobs_df.iterrows()
+    }
+    picked_job = st.selectbox(
+        "Job",
+        options=[""] + list(job_options.keys()),
+        format_func=lambda k: job_options.get(k, "— Choose a job —"),
+        key="cc_job_select",
+    )
+    if picked_job:
+        compare_job = picked_job
+        st.session_state["compare_job"] = compare_job
+        # Reset candidate selection when job changes
+        st.session_state["compare_ids"] = []
+        compare_ids = []
+        st.rerun()
+    else:
+        st.stop()
+
+# Candidate selector (if < 2 candidates pre-selected)
+if len(compare_ids) < 2:
+    df_all = fetch_candidates(conn, compare_job)
+    ranked_df = df_all[df_all["overall_score"].notna()].copy()
+    if ranked_df.empty:
+        st.warning(f"No ranked candidates found for **{compare_job}**.")
+        st.stop()
+
+    st.markdown(
+        f'<div style="font-size:0.9rem;color:{sub_col};margin-bottom:0.4rem;">'
+        f'Pick 2–3 ranked candidates from <b>{compare_job}</b>:</div>',
+        unsafe_allow_html=True,
+    )
+    cand_options = {
+        str(r["apply_id"]): f"{r['candidate_name']} ({r['apply_id']}) — Score: {int(r['overall_score'] or 0)}"
+        for _, r in ranked_df.iterrows()
+    }
+    picked_cands = st.multiselect(
+        "Candidates",
+        options=list(cand_options.keys()),
+        default=compare_ids,
+        format_func=lambda k: cand_options.get(k, k),
+        key="cc_cand_select",
+    )
+    st.session_state["compare_ids"] = picked_cands
+    compare_ids = picked_cands
+
+    if len(compare_ids) < 2:
+        st.caption("Select at least 2 candidates to compare.")
+        st.stop()
+    elif len(compare_ids) > 3:
+        st.caption("Maximum 3 candidates allowed. Please remove some.")
+        st.stop()
+    else:
+        # Candidates selected — proceed to comparison
+        pass
 
 df_all = fetch_candidates(conn, compare_job)
 if df_all.empty:
