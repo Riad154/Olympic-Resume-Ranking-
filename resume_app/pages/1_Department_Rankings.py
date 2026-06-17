@@ -660,7 +660,7 @@ def _render_candidate_detail(sel: pd.Series, key_suffix: str):
 
 
 if tabs:
-    for idx, dept in enumerate(dept_rows, start=1):
+    for idx, dept in enumerate(dept_rows, start=0):
         dept_name = dept["department"]
         with tabs[idx]:
             # Metrics strip for this dept
