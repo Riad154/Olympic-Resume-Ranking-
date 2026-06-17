@@ -61,6 +61,46 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ── Olympic × FIFA World Cup 2026 banner ───────────────────────────────────────
+wc_bg    = "#0B3D2E" if is_day else "#0A2E23"
+wc_accent = "#C8102E"
+wc_text   = "#FFFFFF"
+st.markdown(
+    f"""
+    <div style="
+        background: linear-gradient(135deg, {wc_bg} 0%, #145A3E 50%, {wc_bg} 100%);
+        border-radius: 12px;
+        padding: 1.2rem 1.6rem;
+        margin-bottom: 1.2rem;
+        border-left: 5px solid {wc_accent};
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    ">
+        <div style="display:flex;align-items:center;gap:1rem;">
+            <div style="font-size:2.4rem;line-height:1;">⚽</div>
+            <div>
+                <div style="color:{wc_text};font-size:1.05rem;font-weight:700;letter-spacing:0.3px;">
+                    Building the Winning Team — Olympic Industries PLC
+                </div>
+                <div style="color:rgba(255,255,255,0.75);font-size:0.82rem;margin-top:0.3rem;">
+                    Just like the FIFA World Cup 2026 unites the best talent from 48 nations,
+                    our AI-powered HR pipeline scouts, ranks, and assembles the perfect squad for every role.
+                </div>
+            </div>
+        </div>
+        <div style="text-align:center;min-width:80px;">
+            <div style="font-size:1.8rem;line-height:1;">🏆</div>
+            <div style="color:rgba(255,255,255,0.7);font-size:0.65rem;margin-top:0.2rem;">
+                WE ARE 26
+            </div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ── Metrics strip (now 5 live cards) ───────────────────────────────────────────
 active_depts = len(dept_rows)
 total_short  = sum(r.get("shortlist", 0) for r in dept_rows)
