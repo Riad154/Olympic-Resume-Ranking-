@@ -1432,6 +1432,7 @@ async def call_ollama_async(
         "model":  OLLAMA_MODEL,
         "format": "json",
         "stream": False,
+        "keep_alive": -1,  # Keep model loaded in VRAM for the entire run
         "options": {
             "temperature": 0.1,
             "top_p":       0.9,

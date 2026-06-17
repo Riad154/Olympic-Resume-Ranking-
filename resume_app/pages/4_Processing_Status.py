@@ -583,7 +583,13 @@ else:
         if ps is None:
             st.error(f"🔴 Cannot reach Ollama at {OLLAMA_HOST}")
         elif not ps:
-            st.info("No models currently loaded (will load on first request).")
+            st.warning(
+                "⚠️ **No models currently loaded in VRAM.**\n\n"
+                "This causes the model to cold-start on every request, making ranking extremely slow.\n\n"
+                "**Fix:** Set the environment variable to keep the model resident:\n"
+                "`setx OLLAMA_KEEP_ALIVE -1`  (then restart Ollama)\n\n"
+                "Or restart the ranker — recent versions send `keep_alive: -1` with each request."
+            )
         else:
             for m in ps:
                 name = m.get("name", "?")

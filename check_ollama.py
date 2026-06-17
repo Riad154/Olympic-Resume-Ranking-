@@ -44,6 +44,15 @@ def _check_env_vars() -> None:
     else:
         print(f"[ENV]  OLLAMA_MAX_LOADED_MODELS={mlm}")
 
+    ka = os.environ.get("OLLAMA_KEEP_ALIVE")
+    if not ka:
+        print("[WARN] OLLAMA_KEEP_ALIVE is not set.")
+        print("       Without this, Ollama unloads the model after ~5 min idle.")
+        print("       Every request then triggers a cold-start (very slow).")
+        print("       Windows: setx OLLAMA_KEEP_ALIVE -1  (then restart Ollama)")
+    else:
+        print(f"[ENV]  OLLAMA_KEEP_ALIVE={ka}")
+
 
 def _tags(host: str) -> list[dict]:
     r = requests.get(f"{host}/api/tags", timeout=10)
