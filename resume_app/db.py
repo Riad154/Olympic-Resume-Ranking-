@@ -1135,57 +1135,60 @@ def seed_bdjobs_registry(conn=None) -> int:
 
     Uses ON CONFLICT DO NOTHING so existing ranked jobs are not overwritten.
     Returns count of newly inserted rows. Safe to call multiple times — idempotent.
+    Uses a single batch INSERT for speed.
     """
     if conn is None:
         conn = fresh_conn()
 
-    inserted = 0
+    rows = []
     for job_label, meta in BDJOBS_JOB_REGISTRY.items():
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO jobs (
-                        job_label, job_title, department,
-                        required_skills, red_flags,
-                        min_experience, education_req,
-                        weight_skills, weight_exp, weight_edu,
-                        weight_leadership, weight_culture,
-                        interviewer_notes, status,
-                        salary_stated, salary_estimate, location, deadline, bdjobs_experience
-                    ) VALUES (
-                        %s, %s, %s,
-                        %s, %s,
-                        %s, %s,
-                        %s, %s, %s,
-                        %s, %s,
-                        %s, 'Pending',
-                        %s, %s, %s, %s, %s
-                    )
-                    ON CONFLICT (job_label) DO NOTHING
-                """, (
-                    job_label,
-                    meta.get("job_title", ""),
-                    meta.get("department", "Uncategorized"),
-                    meta.get("required_skills", []),
-                    meta.get("red_flags", []),
-                    meta.get("min_experience", "Any"),
-                    meta.get("education_req", "Any"),
-                    meta.get("weight_skills", 50),
-                    meta.get("weight_exp", 30),
-                    meta.get("weight_edu", 10),
-                    meta.get("weight_leadership", 5),
-                    meta.get("weight_culture", 5),
-                    meta.get("scoring_note", ""),
-                    meta.get("salary_stated", "Negotiable"),
-                    meta.get("salary_estimate", ""),
-                    meta.get("location", ""),
-                    meta.get("deadline", ""),
-                    meta.get("experience", ""),
-                ))
-            inserted += 1
-        except Exception as e:
-            print(f"[seed_bdjobs_registry] Failed for {job_label}: {e}")
-    return inserted
+        rows.append((
+            job_label,
+            meta.get("job_title", ""),
+            meta.get("department", "Uncategorized"),
+            meta.get("required_skills", []),
+            meta.get("red_flags", []),
+            meta.get("min_experience", "Any"),
+            meta.get("education_req", "Any"),
+            meta.get("weight_skills", 50),
+            meta.get("weight_exp", 30),
+            meta.get("weight_edu", 10),
+            meta.get("weight_leadership", 5),
+            meta.get("weight_culture", 5),
+            meta.get("scoring_note", ""),
+            "Pending",
+            meta.get("salary_stated", "Negotiable"),
+            meta.get("salary_estimate", ""),
+            meta.get("location", ""),
+            meta.get("deadline", ""),
+            meta.get("experience", ""),
+        ))
+
+    if not rows:
+        return 0
+
+    try:
+        with conn.cursor() as cur:
+            cur.executemany("""
+                INSERT INTO jobs (
+                    job_label, job_title, department,
+                    required_skills, red_flags,
+                    min_experience, education_req,
+                    weight_skills, weight_exp, weight_edu,
+                    weight_leadership, weight_culture,
+                    interviewer_notes, status,
+                    salary_stated, salary_estimate, location, deadline, bdjobs_experience
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s
+                )
+                ON CONFLICT (job_label) DO NOTHING
+            """, rows)
+        return len(rows)
+    except Exception as e:
+        print(f"[seed_bdjobs_registry] Batch insert failed: {e}")
+        return 0
 
 
 def migrate_existing_jobs(conn) -> int:

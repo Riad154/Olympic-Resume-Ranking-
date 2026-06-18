@@ -44,33 +44,34 @@ if user and isinstance(user, dict) and user.get("username"):
         st.image(str(banner_path), use_container_width=True)
     st.stop()
 
-# ── Self-test diagnostics (collapsible) ──────────────────────────────────────
+# ── Self-test diagnostics (manual — does not run on page load) ───────────────
 with st.expander("🔧 System Health (click if login fails)", expanded=False):
-    db_ok = False
-    users_ok = False
-    admin_ok = False
-    user_count = 0
-    try:
-        conn = get_conn()
-        with conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM users")
-            user_count = cur.fetchone()[0]
-            cur.execute("SELECT username, is_active FROM users WHERE username = 'admin'")
-            admin_row = cur.fetchone()
-        db_ok = True
-        users_ok = user_count > 0
-        admin_ok = admin_row is not None and admin_row[1] is True
-    except Exception as e:
-        st.error(f"DB connection error: {e}")
-        st.code(traceback.format_exc())
+    if st.button("Check System Health", key="check_health"):
+        db_ok = False
+        users_ok = False
+        admin_ok = False
+        user_count = 0
+        try:
+            conn = get_conn()
+            with conn.cursor() as cur:
+                cur.execute("SELECT count(*) FROM users")
+                user_count = cur.fetchone()[0]
+                cur.execute("SELECT username, is_active FROM users WHERE username = 'admin'")
+                admin_row = cur.fetchone()
+            db_ok = True
+            users_ok = user_count > 0
+            admin_ok = admin_row is not None and admin_row[1] is True
+        except Exception as e:
+            st.error(f"DB connection error: {e}")
+            st.code(traceback.format_exc())
 
-    d1, d2, d3 = st.columns(3)
-    with d1:
-        st.markdown(f"{'🟢' if db_ok else '🔴'} **DB Connection**: {'OK' if db_ok else 'FAILED'}")
-    with d2:
-        st.markdown(f"{'🟢' if users_ok else '🔴'} **Users table**: {user_count if users_ok else 'N/A'} rows")
-    with d3:
-        st.markdown(f"{'🟢' if admin_ok else '🔴'} **admin user**: {'active' if admin_ok else 'missing/inactive'}")
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            st.markdown(f"{'🟢' if db_ok else '🔴'} **DB Connection**: {'OK' if db_ok else 'FAILED'}")
+        with d2:
+            st.markdown(f"{'🟢' if users_ok else '🔴'} **Users table**: {user_count if users_ok else 'N/A'} rows")
+        with d3:
+            st.markdown(f"{'🟢' if admin_ok else '🔴'} **admin user**: {'active' if admin_ok else 'missing/inactive'}")
 
     if st.button("🧹 Force Clear Session", use_container_width=True, key="clear_sess"):
         st.session_state.clear()
@@ -81,20 +82,24 @@ st.markdown("<div style='height:4vh;'></div>", unsafe_allow_html=True)
 
 left, col, right = st.columns([1, 1.4, 1])
 with col:
-    # Olympic logo
-    logo_path = Path(__file__).resolve().parent.parent / "user_logo.png"
-    if logo_path.exists():
-        try:
-            import base64
-            b64 = base64.b64encode(logo_path.read_bytes()).decode()
-            st.markdown(
-                f"<div style='text-align:center;margin-bottom:0.3rem;'>"
-                f"<img src='data:image/png;base64,{b64}' width='140' style='display:inline-block;'>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-        except Exception:
-            pass
+    # Olympic logo — cache base64 in session state for speed
+    _logo_b64 = st.session_state.get("_login_logo_b64")
+    if _logo_b64 is None:
+        logo_path = Path(__file__).resolve().parent.parent / "user_logo.png"
+        if logo_path.exists():
+            try:
+                import base64
+                _logo_b64 = base64.b64encode(logo_path.read_bytes()).decode()
+                st.session_state["_login_logo_b64"] = _logo_b64
+            except Exception:
+                pass
+    if _logo_b64:
+        st.markdown(
+            f"<div style='text-align:center;margin-bottom:0.3rem;'>"
+            f"<img src='data:image/png;base64,{_logo_b64}' width='140' style='display:inline-block;'>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
     else:
         st.markdown("<div style='height:0.3rem;'></div>", unsafe_allow_html=True)
 
