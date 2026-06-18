@@ -2509,7 +2509,7 @@ def render_sidebar():
 
         # ── Auth section ─────────────────────────────────────────────────────────
         user = st.session_state.get("user")
-        if user:
+        if user and isinstance(user, dict) and user.get("username"):
             st.markdown('<hr class="divider">', unsafe_allow_html=True)
             st.markdown(
                 f"""
@@ -2557,7 +2557,7 @@ def render_sidebar():
                     unsafe_allow_html=True,
                 )
 
-        if user:
+        if user and isinstance(user, dict) and user.get("username"):
             _safe_page_link("Home.py",                           label="📋  Dashboard")
             _safe_page_link("pages/0_Download_CVs.py",           label="⬇️⬆️ Download/Upload CVs")
             _safe_page_link("pages/1_Department_Rankings.py",    label="🏢  Department Rankings")

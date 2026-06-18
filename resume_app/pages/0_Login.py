@@ -35,10 +35,17 @@ st.markdown(f"<style>{get_css()}</style>", unsafe_allow_html=True)
 render_sidebar()
 
 # ── If already logged in, redirect to Dashboard ──────────────────────────────────
-if st.session_state.get("user"):
-    st.success(f"Welcome back, **{st.session_state['user']['display_name']}**!")
-    if st.button("Go to Dashboard", type="primary", use_container_width=True):
-        safe_switch_page("Home.py")
+user = st.session_state.get("user")
+if user and isinstance(user, dict) and user.get("username"):
+    st.success(f"Welcome back, **{user.get('display_name', user['username'])}**!")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Go to Dashboard", type="primary", use_container_width=True):
+            safe_switch_page("Home.py")
+    with c2:
+        if st.button("🚪 Logout", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
 
     # ── Olympic Industries PLC × HR Excellence banner image ────────────────────
     st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
@@ -52,6 +59,11 @@ if st.session_state.get("user"):
             "It will appear here automatically once saved."
         )
     st.stop()
+elif user is not None:
+    # Corrupted session state — force clear
+    st.warning("Session state appears corrupted. Clearing and reloading...")
+    st.session_state.clear()
+    st.rerun()
 
 # ── Login form (compact, no-scroll) ────────────────────────────────────────────
 st.markdown("<div style='height:4vh;'></div>", unsafe_allow_html=True)
@@ -102,6 +114,12 @@ with col:
         else:
             try:
                 conn = get_conn()
+            except Exception as e:
+                st.error(f"Database connection failed: {e}")
+                st.info("Check that PostgreSQL is running and credentials are correct.")
+                raise  # re-raise so the traceback appears in the console
+
+            try:
                 user = authenticate_user(conn, username.strip(), password)
                 if user:
                     st.session_state["user"] = user
@@ -115,3 +133,5 @@ with col:
                     st.error("Invalid username or password. Please try again.")
             except Exception as e:
                 st.error(f"Login error: {e}")
+                st.caption(f"Debug: username='{username.strip()}' | error_type={type(e).__name__}")
+                raise  # Show full traceback in the console for debugging
