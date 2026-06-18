@@ -2575,21 +2575,22 @@ def render_sidebar():
             _safe_page_link("pages/0_Login.py", label="🔐  Login")
 
 def safe_switch_page(page: str) -> None:
-    """Cloud-safe wrapper around st.switch_page.
+    """Programmatically switch to another Streamlit page.
 
-    Streamlit 1.55+ prefers st.page_link for reliable navigation.
-    We try page_link first, then switch_page, then a meta refresh.
+    Use this inside button click handlers.  st.switch_page is the
+    correct API for programmatic navigation; st.page_link only
+    renders a clickable link and cannot be used for code-driven
+    page switches.
     """
-    # Streamlit 1.55: page_link is the most reliable way to navigate
     try:
-        st.page_link(page, label="")
+        st.switch_page(page)
         return
     except Exception:
         pass
 
-    # Older Streamlit versions
+    # Fallback: render a visible page_link so the user can click it
     try:
-        st.switch_page(page)
+        st.page_link(page, label=f"Open {page}")
         return
     except Exception:
         pass
