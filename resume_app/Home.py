@@ -29,6 +29,11 @@ if not st.session_state.get("user"):
     safe_switch_page("pages/0_Login.py")
     st.stop()
 
+# Deferred navigation from Quick Actions — st.switch_page must run at top level
+_nav = st.session_state.pop("_navigate_to", None)
+if _nav:
+    safe_switch_page(_nav)
+
 try:
     conn = get_conn()
 except Exception as e:
@@ -183,14 +188,18 @@ with col_right:
     qa_col1, qa_col2 = st.columns(2)
     with qa_col1:
         if st.button("➕ New Job", use_container_width=True, type="secondary"):
-            safe_switch_page("pages/5_New_Job_Posting.py")
+            st.session_state["_navigate_to"] = "pages/3_New_Job.py"
+            st.rerun()
         if st.button("📊 Job Rankings", use_container_width=True, type="secondary"):
-            safe_switch_page("pages/2_Job_Rankings.py")
+            st.session_state["_navigate_to"] = "pages/2_Job_Rankings.py"
+            st.rerun()
     with qa_col2:
         if st.button("⬆️ Upload CVs", use_container_width=True, type="secondary"):
-            safe_switch_page("pages/3_Upload_CVs.py")
+            st.session_state["_navigate_to"] = "pages/0_Download_CVs.py"
+            st.rerun()
         if st.button("⚙️ Processing", use_container_width=True, type="secondary"):
-            safe_switch_page("pages/4_Processing_Status.py")
+            st.session_state["_navigate_to"] = "pages/4_Processing_Status.py"
+            st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
