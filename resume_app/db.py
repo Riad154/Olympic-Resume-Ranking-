@@ -2578,31 +2578,11 @@ def safe_switch_page(page: str) -> None:
     """Programmatically switch to another Streamlit page.
 
     Use this inside button click handlers.  st.switch_page is the
-    correct API for programmatic navigation; st.page_link only
-    renders a clickable link and cannot be used for code-driven
-    page switches.
+    correct API for programmatic navigation.  It raises an internal
+    RerunException that MUST propagate to the Streamlit runtime —
+    never wrap it in a bare except.
     """
-    try:
-        st.switch_page(page)
-        return
-    except Exception:
-        pass
-
-    # Fallback: render a visible page_link so the user can click it
-    try:
-        st.page_link(page, label=f"Open {page}")
-        return
-    except Exception:
-        pass
-
-    # Last resort: meta refresh
-    name = page.replace("pages/", "").replace(".py", "")
-    name = re.sub(r"^\d+_", "", name)
-    st.markdown(
-        f'<meta http-equiv="refresh" content="0;URL=/{name}">',
-        unsafe_allow_html=True,
-    )
-    st.stop()
+    st.switch_page(page)
 
 
 def fetch_global_stats(conn=None) -> dict:
