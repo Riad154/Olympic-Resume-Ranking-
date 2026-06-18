@@ -1469,6 +1469,15 @@ def get_audit_logs(conn, limit: int = 500) -> list[dict]:
 
 # ── Metadata ingestion ─────────────────────────────────────────────────────────
 
+def _csv_get(row: dict, *keys: str) -> str:
+    """Return the first non-empty value from a list of possible CSV column names."""
+    for k in keys:
+        v = str(row.get(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
 def ingest_metadata(job_label: str, meta_csv: str) -> tuple:
     if not os.path.exists(meta_csv):
         return 0, 0
@@ -1476,17 +1485,36 @@ def ingest_metadata(job_label: str, meta_csv: str) -> tuple:
     updated = skipped = 0
     with open(meta_csv, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            apply_id = str(row.get("apply_id") or row.get("ApplyID") or "").strip()
+            apply_id = _csv_get(row, "apply_id", "ApplyID")
             if not apply_id:
                 skipped += 1
                 continue
-            pdf_file = str(row.get("uploaded_cv_file") or "").strip()
+
+            # Handle both new and old CSV column names
+            name     = _csv_get(row, "candidate_name", "Name")
+            email    = _csv_get(row, "email", "Email")
+            mobile   = _csv_get(row, "mobile", "Mobile")
+            location = _csv_get(row, "location", "ApplicantLocation")
+            degree   = _csv_get(row, "degree", "Degree")
+            univ     = _csv_get(row, "university", "University")
+            exp_det  = _csv_get(row, "experience", "Exps")
+            exp_sal  = _csv_get(row, "expected_salary", "Salary")
+            cur_sal  = _csv_get(row, "current_salary", "ApplicantCurrentSalary")
+            app_date = _csv_get(row, "application_date", "AppliedDate")
+            bd_score = _csv_get(row, "bdjobs_match_score", "MatchingScore")
+
+            pdf_file = _csv_get(row, "uploaded_cv_file")
             pdf_path = os.path.join(RESUMES_BASE, job_label, "uploaded_cvs", pdf_file) if pdf_file else ""
+
             try:
-                age = float(str(row.get("age") or "0").replace(",",""))
+                age = float(_csv_get(row, "age").replace(",", "") or "0")
             except ValueError:
                 age = None
-            has_cv = str(row.get("has_uploaded_cv") or "").strip().lower() in ("yes","true","1")
+
+            # has_uploaded_cv: new format uses "Yes"/"True"/"1", old format uses "1"/"0"
+            cv_raw = _csv_get(row, "has_uploaded_cv", "AttachedCV")
+            has_cv = cv_raw.lower() in ("yes", "true", "1")
+
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO candidates
@@ -1496,35 +1524,25 @@ def ingest_metadata(job_label: str, meta_csv: str) -> tuple:
                          bdjobs_score, has_uploaded_cv, pdf_path)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (job_label, apply_id) DO UPDATE SET
-                        candidate_name    = EXCLUDED.candidate_name,
-                        email             = EXCLUDED.email,
-                        mobile            = EXCLUDED.mobile,
-                        location          = EXCLUDED.location,
-                        degree            = EXCLUDED.degree,
-                        university        = EXCLUDED.university,
-                        experience_detail = EXCLUDED.experience_detail,
-                        age               = EXCLUDED.age,
-                        expected_salary   = EXCLUDED.expected_salary,
-                        current_salary    = EXCLUDED.current_salary,
-                        application_date  = EXCLUDED.application_date,
-                        bdjobs_score      = EXCLUDED.bdjobs_score,
+                        candidate_name    = COALESCE(NULLIF(EXCLUDED.candidate_name, ''), candidates.candidate_name),
+                        email             = COALESCE(NULLIF(EXCLUDED.email, ''), candidates.email),
+                        mobile            = COALESCE(NULLIF(EXCLUDED.mobile, ''), candidates.mobile),
+                        location          = COALESCE(NULLIF(EXCLUDED.location, ''), candidates.location),
+                        degree            = COALESCE(NULLIF(EXCLUDED.degree, ''), candidates.degree),
+                        university        = COALESCE(NULLIF(EXCLUDED.university, ''), candidates.university),
+                        experience_detail = COALESCE(NULLIF(EXCLUDED.experience_detail, ''), candidates.experience_detail),
+                        age               = COALESCE(EXCLUDED.age, candidates.age),
+                        expected_salary   = COALESCE(NULLIF(EXCLUDED.expected_salary, ''), candidates.expected_salary),
+                        current_salary    = COALESCE(NULLIF(EXCLUDED.current_salary, ''), candidates.current_salary),
+                        application_date  = COALESCE(NULLIF(EXCLUDED.application_date, ''), candidates.application_date),
+                        bdjobs_score      = COALESCE(NULLIF(EXCLUDED.bdjobs_score, ''), candidates.bdjobs_score),
                         has_uploaded_cv   = EXCLUDED.has_uploaded_cv,
-                        pdf_path          = COALESCE(EXCLUDED.pdf_path, candidates.pdf_path)
+                        pdf_path          = COALESCE(NULLIF(EXCLUDED.pdf_path, ''), candidates.pdf_path)
                 """, (
-                    job_label, apply_id,
-                    str(row.get("candidate_name") or "").strip(),
-                    str(row.get("email") or "").strip(),
-                    str(row.get("mobile") or "").strip(),
-                    str(row.get("location") or "").strip(),
-                    str(row.get("degree") or "").strip(),
-                    str(row.get("university") or "").strip(),
-                    str(row.get("experience") or "").strip(),
-                    age,
-                    str(row.get("expected_salary") or "").strip(),
-                    str(row.get("current_salary") or "").strip(),
-                    str(row.get("application_date") or "").strip(),
-                    str(row.get("bdjobs_match_score") or "").strip(),
-                    has_cv, pdf_path,
+                    job_label, apply_id, name, email, mobile, location,
+                    degree, univ, exp_det, age,
+                    exp_sal, cur_sal, app_date,
+                    bd_score, has_cv, pdf_path,
                 ))
             updated += 1
     conn.close()

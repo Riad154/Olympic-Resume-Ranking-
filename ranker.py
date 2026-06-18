@@ -1000,6 +1000,15 @@ def load_job_config(conn, job_label: str) -> dict:
     return cfg
 
 
+def _csv_val(row: dict, *keys: str) -> str:
+    """Return the first non-empty value from possible CSV column names."""
+    for k in keys:
+        v = str(row.get(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
 def load_metadata_csv(meta_csv: str) -> dict:
     result = {}
     if not os.path.exists(meta_csv):
@@ -1007,11 +1016,26 @@ def load_metadata_csv(meta_csv: str) -> dict:
         return result
     with open(meta_csv, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            apply_id = str(row.get("apply_id") or row.get("ApplyID") or "").strip()
-            name     = str(row.get("candidate_name") or row.get("Name") or "").strip()
-            pdf_file = str(row.get("uploaded_cv_file") or "").strip()
-            if apply_id:
-                result[apply_id] = {"name": name, "pdf_filename": pdf_file}
+            apply_id = _csv_val(row, "apply_id", "ApplyID")
+            if not apply_id:
+                continue
+            cv_raw = _csv_val(row, "has_uploaded_cv", "AttachedCV")
+            result[apply_id] = {
+                "name":             _csv_val(row, "candidate_name", "Name"),
+                "pdf_filename":     _csv_val(row, "uploaded_cv_file"),
+                "email":            _csv_val(row, "email", "Email"),
+                "mobile":           _csv_val(row, "mobile", "Mobile"),
+                "location":         _csv_val(row, "location", "ApplicantLocation"),
+                "degree":           _csv_val(row, "degree", "Degree"),
+                "university":       _csv_val(row, "university", "University"),
+                "experience_detail": _csv_val(row, "experience", "Exps"),
+                "expected_salary":  _csv_val(row, "expected_salary", "Salary"),
+                "current_salary":   _csv_val(row, "current_salary", "ApplicantCurrentSalary"),
+                "application_date": _csv_val(row, "application_date", "AppliedDate"),
+                "bdjobs_score":     _csv_val(row, "bdjobs_match_score", "MatchingScore"),
+                "has_uploaded_cv":  cv_raw.lower() in ("yes", "true", "1"),
+                "age":              _csv_val(row, "age"),
+            }
     print(f"[CSV] Loaded {len(result)} candidates from metadata.")
     return result
 
@@ -1267,13 +1291,43 @@ def _default_scores_dict() -> dict:
     }
 
 
+def _neutral_text_defaults() -> dict:
+    """Safe neutral defaults for text fields when the LLM returned valid scores
+    but some text fields were missing (truncated JSON, etc.)."""
+    return {
+        "reasoning": "—",
+        "strengths": [],
+        "gaps": [],
+        "risk_flags": [],
+    }
+
+
 def _fill_missing_fields(parsed: dict) -> dict:
-    """Ensure every expected key exists with a safe default."""
-    defaults = _default_scores_dict()
-    out = dict(defaults)
-    for k in defaults:
-        if k in parsed:
-            out[k] = parsed[k]
+    """Ensure every expected key exists with a safe default.
+
+    If the LLM returned *some* scores (partial parse), use neutral empty
+    defaults for text fields rather than the alarming error-message text
+    reserved for total parse failures.
+    """
+    has_any_score = any(
+        parsed.get(k) not in (None, 0, "", [], {})
+        for k in ["skills_score", "experience_score", "leadership_score",
+                  "education_score", "culture_fit_score"]
+    )
+    if has_any_score:
+        # Partial parse: merge parsed data with neutral text defaults
+        base = {**_neutral_text_defaults(), **_default_scores_dict()}
+        out = dict(base)
+        for k in base:
+            if k in parsed:
+                out[k] = parsed[k]
+    else:
+        # Total failure: use full error-message defaults
+        defaults = _default_scores_dict()
+        out = dict(defaults)
+        for k in defaults:
+            if k in parsed:
+                out[k] = parsed[k]
     # Coerce types
     for k in ["skills_score", "experience_score", "leadership_score",
               "education_score", "culture_fit_score",
@@ -1630,7 +1684,8 @@ def get_existing_apply_ids(cur, job_label: str) -> set:
 
 
 def upsert_candidate(cur, job_label, apply_id, name, txt_path, pdf_path,
-                     pdf_text_chars, jd_used, scores):
+                     pdf_text_chars, jd_used, scores, meta: dict | None = None):
+    meta = meta or {}
     cur.execute("""
         INSERT INTO candidates
             (job_label, apply_id, candidate_name, profile_txt_path, pdf_path,
@@ -1639,17 +1694,25 @@ def upsert_candidate(cur, job_label, apply_id, name, txt_path, pdf_path,
              leadership_score, education_score, culture_fit_score,
              edu_tier_score, edu_degree_score, edu_gpa_score,
              experience_years, strengths, gaps, risk_flags,
-             recommendation, reasoning, ranked_at, rank_error)
+             recommendation, reasoning, ranked_at, rank_error,
+             email, mobile, location, degree, university,
+             experience_detail, age,
+             expected_salary, current_salary, application_date,
+             bdjobs_score, has_uploaded_cv)
         VALUES
             (%s,%s,%s,%s,%s, %s,%s,
              %s,%s,%s,%s,%s,%s,
              %s,%s,%s,
              %s,%s,%s,%s,
-             %s,%s, NOW(), NULL)
+             %s,%s, NOW(), NULL,
+             %s,%s,%s,%s,%s,
+             %s,%s,
+             %s,%s,%s,
+             %s,%s)
         ON CONFLICT (job_label, apply_id) DO UPDATE SET
-            candidate_name    = EXCLUDED.candidate_name,
+            candidate_name    = COALESCE(NULLIF(EXCLUDED.candidate_name, ''), candidates.candidate_name),
             profile_txt_path  = EXCLUDED.profile_txt_path,
-            pdf_path          = EXCLUDED.pdf_path,
+            pdf_path          = COALESCE(NULLIF(EXCLUDED.pdf_path, ''), candidates.pdf_path),
             pdf_text_chars    = EXCLUDED.pdf_text_chars,
             jd_used           = EXCLUDED.jd_used,
             overall_score     = EXCLUDED.overall_score,
@@ -1668,7 +1731,19 @@ def upsert_candidate(cur, job_label, apply_id, name, txt_path, pdf_path,
             recommendation    = EXCLUDED.recommendation,
             reasoning         = EXCLUDED.reasoning,
             ranked_at         = NOW(),
-            rank_error        = NULL
+            rank_error        = NULL,
+            email             = COALESCE(NULLIF(EXCLUDED.email, ''), candidates.email),
+            mobile            = COALESCE(NULLIF(EXCLUDED.mobile, ''), candidates.mobile),
+            location          = COALESCE(NULLIF(EXCLUDED.location, ''), candidates.location),
+            degree            = COALESCE(NULLIF(EXCLUDED.degree, ''), candidates.degree),
+            university        = COALESCE(NULLIF(EXCLUDED.university, ''), candidates.university),
+            experience_detail = COALESCE(NULLIF(EXCLUDED.experience_detail, ''), candidates.experience_detail),
+            age               = COALESCE(EXCLUDED.age, candidates.age),
+            expected_salary   = COALESCE(NULLIF(EXCLUDED.expected_salary, ''), candidates.expected_salary),
+            current_salary    = COALESCE(NULLIF(EXCLUDED.current_salary, ''), candidates.current_salary),
+            application_date  = COALESCE(NULLIF(EXCLUDED.application_date, ''), candidates.application_date),
+            bdjobs_score      = COALESCE(NULLIF(EXCLUDED.bdjobs_score, ''), candidates.bdjobs_score),
+            has_uploaded_cv   = COALESCE(EXCLUDED.has_uploaded_cv, candidates.has_uploaded_cv)
     """, (
         job_label, apply_id, name, txt_path, pdf_path,
         pdf_text_chars, jd_used,
@@ -1678,6 +1753,18 @@ def upsert_candidate(cur, job_label, apply_id, name, txt_path, pdf_path,
         scores["experience_years"],
         scores["strengths"], scores["gaps"], scores["risk_flags"],
         scores["recommendation"], scores["reasoning"],
+        meta.get("email", ""),
+        meta.get("mobile", ""),
+        meta.get("location", ""),
+        meta.get("degree", ""),
+        meta.get("university", ""),
+        meta.get("experience_detail", ""),
+        float(meta.get("age", "0").replace(",", "")) if meta.get("age") else None,
+        meta.get("expected_salary", ""),
+        meta.get("current_salary", ""),
+        meta.get("application_date", ""),
+        meta.get("bdjobs_score", ""),
+        meta.get("has_uploaded_cv", False),
     ))
 
 
@@ -1893,6 +1980,7 @@ async def process_one(
                             upsert_candidate(
                                 cur, job, apply_id, name, txt_path,
                                 pdf_path, pdf_text_chars, jd_used_label, scores,
+                                meta=meta,
                             )
                         state["pending"] += 1
                         if state["pending"] >= COMMIT_BATCH_SIZE:
@@ -1955,6 +2043,7 @@ async def process_one(
                 upsert_candidate(
                     cur, job, apply_id, name, txt_path,
                     pdf_path, pdf_text_chars, jd_used_label, scores,
+                    meta=meta,
                 )
             state["pending"] += 1
             if state["pending"] >= COMMIT_BATCH_SIZE:
