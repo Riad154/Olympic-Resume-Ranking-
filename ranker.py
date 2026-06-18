@@ -56,10 +56,10 @@ PG_CONN = {
 # Profile/prompt sizing
 # Raised for the new scoring framework — the added education/leadership/culture
 # blocks add ~3.5k chars of prompt context. Keep profile budget generous.
-PROFILE_SOFT_CAP = 8000    # chars for profile portion
-PROMPT_TOTAL_CAP = 18000   # total for profile + JD + framework blocks combined
-OLLAMA_TIMEOUT_SECS = 240  # Increased: longer prompts need more generation time
-COMMIT_BATCH_SIZE = 10
+PROFILE_SOFT_CAP = 5000    # chars for profile portion (reduced: 8GB GPU)
+PROMPT_TOTAL_CAP = 12000   # total for profile + JD + framework blocks (fits num_ctx=4096)
+OLLAMA_TIMEOUT_SECS = 120  # 2 min max — if slower, something is wrong
+COMMIT_BATCH_SIZE = 25     # fewer DB round-trips
 
 REQUIRED_COLUMNS = {
     "id", "job_label", "apply_id", "candidate_name",
@@ -1437,16 +1437,10 @@ async def call_ollama_async(
             "temperature": 0.1,
             "top_p":       0.9,
             "seed":        42,
-            "num_ctx":     int(os.environ.get("OLLAMA_NUM_CTX",     "8192")),
-            # PERFORMANCE FIX: raised from 1024 → 2048.
-            # qwen3:8b emits a thinking block (300-800 tokens) before the JSON.
-            # With num_predict=1024 the JSON was truncated mid-object, producing
-            # 191 "Expecting value: line 1 column 1 (char 0)" errors (empty body)
-            # and 66 KeyError 'skills_score' errors (partial JSON missing fields).
-            # Each truncation triggered a retry, doubling per-resume wall time.
-            # 2048 gives ~1.2 k tokens of headroom for the JSON payload after
-            # reasoning, eliminating most truncation failures.
-            "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "2048")),
+            "num_ctx":     int(os.environ.get("OLLAMA_NUM_CTX",     "4096")),
+            # With /no_think prefix, qwen3 skips reasoning and outputs JSON
+            # directly (~300-500 tokens). 1024 gives ample headroom.
+            "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "1024")),
         },
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -1487,13 +1481,13 @@ async def call_ollama_async(
             last_err = ValueError("Ollama returned empty/default content")
             if attempt == retries - 1:
                 raise last_err
-            await asyncio.sleep(2 ** attempt)
+            await asyncio.sleep(1)
         except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, ValueError) as e:
             last_err = e
             if attempt == retries - 1:
                 raise
-            # Longer backoff for gateway timeouts (VM may need time to wake up)
-            delay = 5 * (2 ** attempt) if "504" in str(e) or "Gateway Timeout" in str(e) else 2 ** attempt
+            # Quick retry — 1s base, 3s for gateway errors
+            delay = 3 if ("504" in str(e) or "Gateway Timeout" in str(e)) else 1
             await asyncio.sleep(delay)
     raise last_err  # type: ignore[misc]
 
@@ -1727,6 +1721,26 @@ def backfill_names(conn, job_label: str, metadata: dict, txt_dir: str):
 
 # ── GPU Check ─────────────────────────────────────────────────────────────────
 
+def _optimal_workers_for_vram() -> int | None:
+    """Return recommended worker count based on GPU VRAM, or None if unknown."""
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        h = pynvml.nvmlDeviceGetHandleByIndex(0)
+        mem = pynvml.nvmlDeviceGetMemoryInfo(h)
+        total_gb = mem.total / (1024 ** 3)
+        pynvml.nvmlShutdown()
+        # qwen3:8b-q4_K_M: ~4.7GB weights + ~0.25GB KV per slot at 4096 ctx
+        if total_gb <= 8:
+            return 2
+        elif total_gb <= 12:
+            return 3
+        else:
+            return 4
+    except Exception:
+        return None
+
+
 def print_gpu_info(workers: int):
     try:
         import pynvml
@@ -1745,8 +1759,13 @@ def print_gpu_info(workers: int):
             free_gb  = mem.free  / (1024 ** 3)
             used_gb  = mem.used  / (1024 ** 3)
             print(f"[GPU{i}] {name} | VRAM: {used_gb:.1f}/{total_gb:.1f} GB used, {free_gb:.1f} GB free")
-            if free_gb < 6:
-                print(f"[GPU{i}] WARNING: < 6 GB free VRAM — qwen3:8b may offload to CPU.")
+            if total_gb <= 8 and workers > 2:
+                print(f"[GPU{i}] ⚠️  8GB GPU with {workers} workers is too many!")
+                print(f"[GPU{i}]    Ollama allocates KV cache per parallel slot,")
+                print(f"[GPU{i}]    causing model CPU offload (72% GPU = very slow).")
+                print(f"[GPU{i}]    Recommended: --workers 2 for 8GB VRAM.")
+            elif free_gb < 4:
+                print(f"[GPU{i}] WARNING: < 4 GB free VRAM — model may offload to CPU.")
                 print(f"[GPU{i}] HINT: reduce --workers (currently {workers}) or close other GPU apps.")
         pynvml.nvmlShutdown()
     except Exception as e:

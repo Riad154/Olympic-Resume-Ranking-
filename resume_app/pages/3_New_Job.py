@@ -24,9 +24,18 @@ _LOG_DIR      = _PROJECT_ROOT / "_dl_logs"
 _LOG_DIR.mkdir(exist_ok=True)
 
 
+# Default worker count: 2 for 8GB GPUs, 4 for 12GB+
+_DEFAULT_WORKERS = int(os.environ.get("RANKER_WORKERS", "2"))
+
+
 def _get_ranker_env():
     """Build environment variables for the ranker subprocess from st.secrets."""
     env = os.environ.copy()
+    # Ensure performance-critical Ollama env vars are always set
+    env.setdefault("OLLAMA_NUM_PARALLEL", "2")
+    env.setdefault("OLLAMA_KEEP_ALIVE", "-1")
+    env.setdefault("OLLAMA_MAX_LOADED_MODELS", "1")
+    env.setdefault("OLLAMA_FLASH_ATTENTION", "1")
     try:
         secrets = st.secrets
         # Services section
@@ -56,7 +65,7 @@ def _get_ranker_env():
 
 def _spawn_ranker(label: str, jd_file: str, department: str):
     """Launch ranker.py as a background subprocess; return (proc, log_path)."""
-    cmd = [VENV_PYTHON, RANKER_PATH, "--job", label]
+    cmd = [VENV_PYTHON, RANKER_PATH, "--job", label, "--workers", str(_DEFAULT_WORKERS)]
     if jd_file:
         cmd += ["--jd", jd_file]
     if department:
