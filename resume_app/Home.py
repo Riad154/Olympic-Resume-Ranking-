@@ -68,6 +68,69 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ── Animations CSS ─────────────────────────────────────────────────────────────
+ANIMATION_CSS = """
+<style>
+@keyframes bannerSlideUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+    0%   { background-position: -200% center; }
+    100% { background-position: 200% center; }
+}
+@keyframes trophyFloat {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    25%      { transform: translateY(-6px) rotate(3deg); }
+    75%      { transform: translateY(-3px) rotate(-2deg); }
+}
+@keyframes metricFadeIn {
+    from { opacity: 0; transform: translateY(20px) scale(0.95); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes countPop {
+    0%   { transform: scale(0.5); opacity: 0; }
+    60%  { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
+@keyframes textReveal {
+    from { opacity: 0; transform: translateX(-15px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+.banner-animated {
+    animation: bannerSlideUp 0.7s ease-out both;
+}
+.banner-animated .banner-shimmer {
+    background-size: 200% 200%;
+    animation: shimmer 4s linear infinite;
+}
+.banner-animated .trophy-icon {
+    animation: trophyFloat 3s ease-in-out infinite;
+    display: inline-block;
+}
+.banner-animated .banner-title {
+    animation: textReveal 0.6s ease-out 0.25s both;
+}
+.banner-animated .banner-sub {
+    animation: textReveal 0.6s ease-out 0.45s both;
+}
+
+.metric-card-animated {
+    animation: metricFadeIn 0.5s ease-out both;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.metric-card-animated:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+}
+.metric-card-animated .metric-val {
+    animation: countPop 0.5s ease-out both;
+}
+</style>
+"""
+st.markdown(ANIMATION_CSS, unsafe_allow_html=True)
+
 # ── Olympic × FIFA World Cup 2026 banner ───────────────────────────────────────
 wc_bg    = "#0B3D2E" if is_day else "#0A2E23"
 wc_accent = "#C8102E"
@@ -122,12 +185,13 @@ metrics = [
     (ranked_count,              f"⭐ Ranked  ({rank_pct}%)"),
     (total_short,               "🟢 Shortlists"),
 ]
-for col, (val, lbl) in zip(st.columns(6), metrics):
+for idx, (col, (val, lbl)) in enumerate(zip(st.columns(6), metrics)):
+    delay = 0.08 * idx
     with col:
         st.markdown(
             f'''
-            <div class="metric-card">
-                <div class="metric-val" style="color:{txt_col} !important;">{val}</div>
+            <div class="metric-card metric-card-animated" style="animation-delay:{delay:.2f}s;">
+                <div class="metric-val" style="color:{txt_col} !important;animation-delay:{delay + 0.15:.2f}s;">{val}</div>
                 <div class="metric-lbl" style="color:{sub_col} !important;">{lbl}</div>
             </div>
             ''',
