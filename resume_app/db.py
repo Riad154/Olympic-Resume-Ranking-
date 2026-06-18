@@ -2576,22 +2576,32 @@ def render_sidebar():
 
 def safe_switch_page(page: str) -> None:
     """Cloud-safe wrapper around st.switch_page.
-    Streamlit Cloud may fail to resolve page paths, so we fall back
-    to st.page_link redirect or markdown-based redirect."""
+
+    Streamlit 1.55+ prefers st.page_link for reliable navigation.
+    We try page_link first, then switch_page, then a meta refresh.
+    """
+    # Streamlit 1.55: page_link is the most reliable way to navigate
+    try:
+        st.page_link(page, label="")
+        return
+    except Exception:
+        pass
+
+    # Older Streamlit versions
     try:
         st.switch_page(page)
+        return
     except Exception:
-        # Fallback: use st.page_link as redirect trigger
-        try:
-            st.page_link(page)
-        except Exception:
-            name = page.replace("pages/", "").replace(".py", "")
-            name = re.sub(r"^\d+_", "", name)
-            st.markdown(
-                f'<meta http-equiv="refresh" content="0;URL=/{name}">',
-                unsafe_allow_html=True,
-            )
-            st.stop()
+        pass
+
+    # Last resort: meta refresh
+    name = page.replace("pages/", "").replace(".py", "")
+    name = re.sub(r"^\d+_", "", name)
+    st.markdown(
+        f'<meta http-equiv="refresh" content="0;URL=/{name}">',
+        unsafe_allow_html=True,
+    )
+    st.stop()
 
 
 def fetch_global_stats(conn=None) -> dict:
