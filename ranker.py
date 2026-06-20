@@ -858,6 +858,56 @@ def build_rule_flags_block(flags: list[str]) -> str:
         + "\n--- END PRE-DETECTED SIGNALS ---\n"
     )
 
+
+
+def extract_rule_based_assessment(profile_text: str) -> dict:
+    """Extract deterministic strengths, gaps, and risk flags from CV text
+    when the LLM fails to produce valid JSON. This provides meaningful
+    fallback content instead of empty defaults."""
+    txt = (profile_text or "").lower()
+    strengths = []
+    gaps = []
+    risk_flags = []
+
+    # Strengths: hard-skill signals
+    if any(k in txt for k in ("bsc", "msc", "bba", "mba", "ca", "acca", "cma", "phd")):
+        strengths.append("Relevant academic qualification")
+    if any(k in txt for k in ("3+ years", "4+ years", "5+ years", "6+ years", "7+ years", "8+ years", "10+ years")):
+        strengths.append(f"{sum(1 for _ in ('3+ years', '4+ years', '5+ years', '6+ years', '7+ years', '8+ years', '10+ years') if _ in txt)}+ years experience")
+    if any(k in txt for k in ("fmcg", "olympic", "pran", "nestle", "unilever", "square", "akash")):
+        strengths.append("FMCG industry experience")
+    if "top tier" in txt or "leading" in txt or "reputed" in txt:
+        strengths.append("Top-tier company background")
+    if any(k in txt for k in ("team lead", "supervisor", "manager", "head of", "director")):
+        strengths.append("Leadership / supervisory role")
+    if any(k in txt for k in ("buet", "du", "dhaka university", "brac", "nsu", "north south")):
+        strengths.append("Reputable university")
+
+    # Gaps: missing signals
+    if not any(k in txt for k in ("fmcg", "olympic", "pran", "nestle", "unilever", "square")):
+        gaps.append("No FMCG industry exposure")
+    if "english" not in txt and "ielts" not in txt and "toefl" not in txt:
+        gaps.append("No English proficiency evidence stated")
+    if len(profile_text or "") < 800:
+        gaps.append("Very brief profile — limited detail for assessment")
+    if not any(k in txt for k in ("lead", "manage", "supervise", "head", "director")):
+        gaps.append("No leadership / team management evidence")
+
+    # Risk flags
+    job_changes = len(re.findall(r'(19|20)\d{2}.*?(?:present|continuing|till now)', txt, re.IGNORECASE))
+    if job_changes >= 4:
+        risk_flags.append(f"{job_changes} job changes — possible instability")
+    if "terminated" in txt or "fired" in txt or "dismissed" in txt:
+        risk_flags.append("Employment termination mentioned")
+    if not any(k in txt for k in ("bsc", "msc", "bba", "mba", "diploma", "hsc")):
+        risk_flags.append("No clear degree qualification found")
+
+    return {
+        "strengths": strengths[:5],
+        "gaps": gaps[:5],
+        "risk_flags": risk_flags[:5],
+    }
+
 JD_BLOCK_TEMPLATE = """--- JOB DESCRIPTION START ---
 {jd_text}
 --- JOB DESCRIPTION END ---
@@ -1033,7 +1083,7 @@ def load_metadata_csv(meta_csv: str) -> dict:
                 "current_salary":   _csv_val(row, "current_salary", "ApplicantCurrentSalary"),
                 "application_date": _csv_val(row, "application_date", "AppliedDate"),
                 "bdjobs_score":     _csv_val(row, "bdjobs_match_score", "MatchingScore"),
-                "has_uploaded_cv":  cv_raw.lower() in ("yes", "true", "1"),
+                "has_uploaded_cv":  bool(cv_raw) and cv_raw.lower() not in ("no", "false", "0", "", "none"),
                 "age":              _csv_val(row, "age"),
             }
     print(f"[CSV] Loaded {len(result)} candidates from metadata.")
@@ -1235,7 +1285,7 @@ def _safe_parse_ollama_response(content: str) -> dict:
 
     # Strip markdown fences and thinking blocks
     raw = re.sub(r"```json|```", "", content).strip()
-    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
+    raw = re.sub(r"<thinking>.*?</thinking>", "", raw, flags=re.DOTALL | re.IGNORECASE)
     raw = raw.strip()
 
     # Fast path: clean JSON
@@ -1362,15 +1412,12 @@ def _fill_missing_fields(parsed: dict) -> dict:
 
 
 def build_fallback_prompt(profile_text: str, job_label: str) -> str:
-    """Stripped-down prompt for the fallback path (no PDF, no JD, no
-    education sub-scores, no strengths/gaps — just the 5 dimension scores).
-    This is used when the full prompt consistently fails (usually because
-    the combined text exceeds the model's context window).
-    """
-    trunc = smart_truncate(profile_text, 4000)
+    """Fallback prompt — shorter but still asks for strengths, gaps, and risk flags.
+    Used when the full prompt fails (usually context-window overflow)."""
+    trunc = smart_truncate(profile_text, 3500)
     return (
-        "Score this candidate on a 0-100 scale for 5 dimensions ONLY. "
-        "Return valid JSON with these exact keys and no other text:\n\n"
+        "Score this candidate on a 0-100 scale and return valid JSON with these exact keys. "
+        "No markdown, no preamble, no explanation outside the JSON:\n\n"
         "{\n"
         '  "skills_score": int,\n'
         '  "experience_score": int,\n'
@@ -1378,8 +1425,11 @@ def build_fallback_prompt(profile_text: str, job_label: str) -> str:
         '  "education_score": int,\n'
         '  "culture_fit_score": int,\n'
         '  "experience_years": float,\n'
-        '  "recommendation": "Shortlist" | "Maybe" | "Reject",\n'
-        '  "reasoning": "string"\n'
+        '  "strengths": [\"string\"],\n'
+        '  "gaps": [\"string\"],\n'
+        '  "risk_flags": [\"string\"],\n'
+        '  "recommendation": \"Shortlist\" | \"Maybe\" | \"Reject\",\n'
+        '  "reasoning": \"string\"\n'
         "}\n\n"
         "Candidate profile (truncated):\n"
         f"{trunc}\n\n"
@@ -1491,10 +1541,10 @@ async def call_ollama_async(
             "temperature": 0.1,
             "top_p":       0.9,
             "seed":        42,
-            "num_ctx":     int(os.environ.get("OLLAMA_NUM_CTX",     "4096")),
+            "num_ctx":     int(os.environ.get("OLLAMA_NUM_CTX",     "16384")),
             # With /no_think prefix, qwen3 skips reasoning and outputs JSON
-            # directly (~300-500 tokens). 1024 gives ample headroom.
-            "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "1024")),
+            # directly. 4096 gives ample headroom for full response with strengths/gaps.
+            "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "4096")),
         },
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -1990,6 +2040,42 @@ async def process_one(
                     if state.get("force_commit"):
                         conn.commit()
                         state["pending"] = 0
+                # If fallback produced empty strengths/gaps, enrich with rule-based extraction
+                if not scores.get("strengths") and not scores.get("gaps"):
+                    rule_assess = extract_rule_based_assessment(profile_text)
+                    scores["strengths"] = rule_assess["strengths"]
+                    scores["gaps"] = rule_assess["gaps"]
+                    scores["risk_flags"] = rule_assess["risk_flags"]
+                    # Re-write to DB with enriched data
+                    async with db_lock:
+                        def _write_enriched():
+                            with conn.cursor() as cur:
+                                upsert_candidate(
+                                    cur, job, apply_id, name, txt_path,
+                                    pdf_path, pdf_text_chars, jd_used_label, scores,
+                                    meta=meta,
+                                )
+                            conn.commit()
+                        asyncio.to_thread(_write_enriched)
+
+                # If fallback produced empty strengths/gaps, enrich with rule-based extraction
+                if not scores.get("strengths") and not scores.get("gaps"):
+                    rule_assess = extract_rule_based_assessment(profile_text)
+                    scores["strengths"] = rule_assess["strengths"]
+                    scores["gaps"] = rule_assess["gaps"]
+                    scores["risk_flags"] = rule_assess["risk_flags"]
+                    # Re-write to DB with enriched data
+                    async with db_lock:
+                        def _write_enriched():
+                            with conn.cursor() as cur:
+                                upsert_candidate(
+                                    cur, job, apply_id, name, txt_path,
+                                    pdf_path, pdf_text_chars, jd_used_label, scores,
+                                    meta=meta,
+                                )
+                            conn.commit()
+                        asyncio.to_thread(_write_enriched)
+
                 await write_progress_async(log_lock, log_path, {
                     "event":          "ok_fallback",
                     "apply_id":       apply_id,
