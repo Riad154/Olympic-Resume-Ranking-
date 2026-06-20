@@ -1,0 +1,96 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Olympic Industries — HR AI Resume Ranking System
+# Docker Compose for full local deployment
+# ──────────────────────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+services:
+  # ── PostgreSQL Database ─────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: hr_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-ai&dt@OIPLC}
+      POSTGRES_DB: ${PG_DBNAME:-resume_ranking}
+    ports:
+      - "${PG_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-scripts:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DBNAME:-resume_ranking}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hr_network
+
+  # ── Streamlit Application ───────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hr_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_DBNAME: ${PG_DBNAME:-resume_ranking}
+      PG_USER: ${PG_USER:-postgres}
+      PG_PASSWORD: ${PG_PASSWORD:-ai&dt@OIPLC}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b-q4_K_M}
+      RESUMES_BASE: /app/downloaded_resumes
+      RANKER_PATH: /app/ranker.py
+      RANKER_WORKERS: ${RANKER_WORKERS:-2}
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./downloaded_resumes:/app/downloaded_resumes
+      - ./profiles_txt:/app/profiles_txt
+      - ./.env:/app/.env:ro
+      - app_logs:/app/logs
+    networks:
+      - hr_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Ollama LLM Server (optional — disable if using host Ollama) ──────────────
+  # Uncomment the block below if you want Ollama inside Docker.
+  # Make sure the host has NVIDIA Docker runtime installed.
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: hr_ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_models:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+  #   networks:
+  #     - hr_network
+
+volumes:
+  pgdata:
+    driver: local
+  app_logs:
+    driver: local
+  # ollama_models:
+  #   driver: local
+
+networks:
+  hr_network:
+    driver: bridge
