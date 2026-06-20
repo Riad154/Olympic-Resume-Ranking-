@@ -1292,6 +1292,7 @@ def _safe_parse_ollama_response(content: str) -> dict:
     try:
         parsed = json.loads(raw)
         if isinstance(parsed, dict):
+            parsed["_parsed_ok"] = True
             return _fill_missing_fields(parsed)
     except (json.JSONDecodeError, ValueError):
         pass
@@ -1313,6 +1314,7 @@ def _safe_parse_ollama_response(content: str) -> dict:
         try:
             parsed = json.loads(m.group(1))
             if isinstance(parsed, dict):
+                parsed["_parsed_ok"] = True
                 return _fill_missing_fields(parsed)
         except (json.JSONDecodeError, ValueError):
             pass
@@ -1324,6 +1326,7 @@ def _safe_parse_ollama_response(content: str) -> dict:
 def _default_scores_dict() -> dict:
     """Safe defaults for a candidate when the LLM returns nothing parseable."""
     return {
+        "_parsed_ok": False,  # Marker: this is a synthetic fallback, not genuine LLM output
         "skills_score": 0,
         "experience_score": 0,
         "leadership_score": 0,
@@ -1371,6 +1374,7 @@ def _fill_missing_fields(parsed: dict) -> dict:
         for k in base:
             if k in parsed:
                 out[k] = parsed[k]
+        out["_parsed_ok"] = True  # We extracted some genuine LLM data
     else:
         # Total failure: use full error-message defaults
         defaults = _default_scores_dict()
@@ -1378,6 +1382,7 @@ def _fill_missing_fields(parsed: dict) -> dict:
         for k in defaults:
             if k in parsed:
                 out[k] = parsed[k]
+        out["_parsed_ok"] = False
     # Coerce types
     for k in ["skills_score", "experience_score", "leadership_score",
               "education_score", "culture_fit_score",
@@ -1569,20 +1574,18 @@ async def call_ollama_async(
                 body = await resp.json()
             content = body["message"]["content"]
             parsed = _safe_parse_ollama_response(content)
+            if not parsed.get("_parsed_ok"):
+                print(f"[LLM-WARN] apply_id={apply_id} | Unparseable response ({len(content)} chars): {content[:300]!r}")
             # Verify we got at least one non-zero score or a non-empty reasoning
             # to avoid accepting pure-default placeholders when the model
             # genuinely returned nothing useful.
-            has_data = (
-                any(parsed.get(k, 0) > 0 for k in [
-                    "skills_score", "experience_score", "leadership_score",
-                    "education_score", "culture_fit_score"])
-                or (parsed.get("reasoning") or "").strip()
-            )
-            if has_data:
+            # Use _parsed_ok marker to distinguish genuine LLM output from
+            # default placeholders. A candidate CAN legitimately score 0 in
+            # all dimensions (unqualified candidate) — that is valid data.
+            if parsed.get("_parsed_ok"):
                 return parsed
-            # If all scores are 0 and reasoning is the default, treat as a
-            # failed attempt (model may have returned empty thinking block)
-            last_err = ValueError("Ollama returned empty/default content")
+            # Parsed but marked as failure — retry
+            last_err = ValueError("Ollama returned unparseable/default content")
             if attempt == retries - 1:
                 raise last_err
             await asyncio.sleep(1)
@@ -2056,25 +2059,7 @@ async def process_one(
                                     meta=meta,
                                 )
                             conn.commit()
-                        asyncio.to_thread(_write_enriched)
-
-                # If fallback produced empty strengths/gaps, enrich with rule-based extraction
-                if not scores.get("strengths") and not scores.get("gaps"):
-                    rule_assess = extract_rule_based_assessment(profile_text)
-                    scores["strengths"] = rule_assess["strengths"]
-                    scores["gaps"] = rule_assess["gaps"]
-                    scores["risk_flags"] = rule_assess["risk_flags"]
-                    # Re-write to DB with enriched data
-                    async with db_lock:
-                        def _write_enriched():
-                            with conn.cursor() as cur:
-                                upsert_candidate(
-                                    cur, job, apply_id, name, txt_path,
-                                    pdf_path, pdf_text_chars, jd_used_label, scores,
-                                    meta=meta,
-                                )
-                            conn.commit()
-                        asyncio.to_thread(_write_enriched)
+                        await asyncio.to_thread(_write_enriched)
 
                 await write_progress_async(log_lock, log_path, {
                     "event":          "ok_fallback",
@@ -2122,6 +2107,13 @@ async def process_one(
     scores["education_score"] = compute_education_score(scores)
     scores["overall_score"]   = compute_overall_score(scores, job_config)
     scores["recommendation"]  = _score_to_recommendation(scores["overall_score"])
+
+    # If main path produced empty strengths/gaps, enrich with rule-based extraction
+    if not scores.get("strengths") and not scores.get("gaps"):
+        rule_assess = extract_rule_based_assessment(profile_text)
+        scores["strengths"] = rule_assess["strengths"]
+        scores["gaps"] = rule_assess["gaps"]
+        scores["risk_flags"] = rule_assess["risk_flags"]
 
     async with db_lock:
         def _write():
