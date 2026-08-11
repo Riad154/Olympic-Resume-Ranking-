@@ -729,6 +729,12 @@ if submit_clicked:
                                 _prog.unlink()
                         except Exception:
                             pass
+                        try:
+                            _pf = Path(RESUMES_BASE) / job_label / "_ranker_paused"
+                            if _pf.exists():
+                                _pf.unlink()
+                        except Exception:
+                            pass
                         st.rerun()
                 
                 with ctrl_col2:

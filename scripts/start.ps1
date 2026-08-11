@@ -15,7 +15,7 @@ Write-Host "===============================================" -ForegroundColor Cy
 Write-Host "  Starting HR AI System" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
-# ── 1. Start PostgreSQL ────────────────────────────────────────────────────────
+# 1. Start PostgreSQL
 $docker = Get-Command docker -ErrorAction SilentlyContinue
 if ($docker) {
     $pgRunning = docker ps --format "{{.Names}}" | Select-String "hr_postgres"
@@ -29,10 +29,10 @@ if ($docker) {
     }
 }
 else {
-    Write-Warning "Docker not found — assuming PostgreSQL is running elsewhere"
+    Write-Warning "Docker not found - assuming PostgreSQL is running elsewhere"
 }
 
-# ── 2. Verify Ollama ───────────────────────────────────────────────────────────
+# 2. Verify Ollama
 try {
     Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 | Out-Null
     Write-Host "[OK] Ollama is running" -ForegroundColor Green
@@ -42,6 +42,6 @@ catch {
     Write-Warning "Start Ollama from the system tray and try again."
 }
 
-# ── 3. Start Streamlit ────────────────────────────────────────────────────────
+# 3. Start Streamlit
 Write-Host "Starting Streamlit app..." -ForegroundColor Green
 & .\venv\Scripts\streamlit.exe run resume_app\Home.py

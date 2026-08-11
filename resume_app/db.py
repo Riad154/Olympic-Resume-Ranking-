@@ -197,6 +197,13 @@ SKILL_DOMAINS = {
         "RPA","FastAPI","Docker","n8n","ERP Implementation","Digital Strategy",
         "AI Project Management","MIS Reporting","Report Automation","ETL",
         "Database Management","Dashboard Development",
+        # Hardware / Embedded (for Hardware IT + AI integration roles)
+        "Embedded Systems","IoT","Microcontrollers (ESP32/STM32/Arduino)",
+        "Firmware Development","PCB Design (KiCad/Altium/EasyEDA)",
+        "Sensors & Actuators","Power Electronics","Battery Management Systems",
+        "BLE/Wi-Fi/GPS Integration","Edge AI (TensorFlow Lite/ONNX)",
+        "Hardware Prototyping & Soldering","OTA Firmware Updates",
+        "RFID/NFC Systems","IoT Cybersecurity",
     ],
     "💰 Finance & Audit": [
         "Financial Reporting","Budgeting & Forecasting","Cost Control","Cost Accounting",
@@ -349,6 +356,9 @@ DEPARTMENT_SKILL_PROFILES = {
             "Python", "Machine Learning", "Data Analysis", "SQL",
             "Power BI", "ERP Implementation", "Process Automation",
             "Digital Strategy", "AI Project Management", "Dashboard Development",
+            # Hardware / Embedded core (for Hardware IT + AI integration roles)
+            "Embedded Systems", "IoT", "Microcontrollers (ESP32/STM32/Arduino)",
+            "Firmware Development", "Sensors & Actuators",
         ],
         "bonus_skills": [
             "Deep Learning", "NLP", "Computer Vision", "Docker",
@@ -356,8 +366,22 @@ DEPARTMENT_SKILL_PROFILES = {
             "S/4HANA", "SAP Integration", "Change Management",
             "LLM Fine-tuning", "Vector Databases", "RAG Pipelines",
             "Prompt Engineering", "MLOps", "Azure/AWS/GCP",
+            # Hardware / Embedded differentiators
+            "PCB Design (KiCad/Altium/EasyEDA)", "Power Electronics",
+            "Battery Management Systems", "BLE/Wi-Fi/GPS Integration",
+            "Edge AI (TensorFlow Lite/ONNX)", "Hardware Prototyping & Soldering",
+            "OTA Firmware Updates", "RFID/NFC Systems", "IoT Cybersecurity",
+            "GPIO/UART/SPI/I2C", "PWM/ADC", "MOSFET Switching Circuits",
         ],
         "anti_skills": ["Manual Data Entry", "Physical Security", "Boiler Operation"],
+        "soft_skills": [
+            "Strong problem-solving ability — able to diagnose hardware faults systematically under time pressure",
+            "Detail-oriented with a structured approach to documentation and testing",
+            "Collaborative team player, able to work across hardware, firmware, and software disciplines",
+            "Self-starter who can manage tasks independently with minimal supervision",
+            "Clear communicator — able to explain technical decisions to non-technical stakeholders",
+            "Willingness to occasionally travel to field sites for installation, commissioning, and troubleshooting",
+        ],
         "scoring_note": (
             "For AI & Digital Transformation roles, differentiate by seniority:\n"
             "  SENIOR EXECUTIVE / MANAGER+: Must show at least one end-to-end AI/automation "
@@ -367,7 +391,35 @@ DEPARTMENT_SKILL_PROFILES = {
             "  EXECUTIVE / OFFICER: Python + SQL proficiency with a deployed data pipeline or "
             "dashboard is sufficient. Theoretical-only candidates (no deployed project) cap at 65.\n"
             "  GENERAL RULE: Candidates with only theoretical knowledge and no production "
-            "deployments should score no higher than 65 on skills_score regardless of qualifications."
+            "deployments should score no higher than 65 on skills_score regardless of qualifications.\n"
+            "  HARDWARE / EMBEDDED + AI ROLES (e.g. Hardware Engineer, IoT/Embedded + AI "
+            "integration): The PRIMARY signal is hands-on embedded hardware experience — "
+            "embedded systems, IoT, and microcontroller platforms (ESP32, STM32, Arduino) with "
+            "GPIO/PWM/ADC/UART/SPI/I2C interfacing. Strong candidates show evidence of taking "
+            "hardware from prototype to production: PCB design (KiCad/EasyEDA/Altium), sensors & "
+            "actuators (reed/magnetic sensors, solenoids, relays, camera modules), power "
+            "electronics (step-down regulators like LM2596, Li-ion/18650 + TP4056 BMS, MOSFET "
+            "switching for inductive loads), and connectivity (BLE, Wi-Fi 802.11 b/g/n, GPS/NMEA "
+            "via UART, SIM800, NEO-6M). AI/ML exposure is VALUED but secondary — conceptual or "
+            "collaborative edge-AI knowledge (TensorFlow Lite, ONNX Runtime, Edge Impulse, "
+            "computer vision basics, Python for data parsing) is a strong plus, not a "
+            "disqualifier. Candidates with deep software/data-science AI but NO hands-on "
+            "hardware/embedded experience should cap at 55 on skills_score for hardware roles. "
+            "BONUS differentiators (do not penalize if absent): fleet/logistics/industrial "
+            "automation deployments, OTA firmware updates for ESP32, RFID/NFC/OTP access "
+            "systems, MicroSD/FAT32 data logging, IR/low-light imaging, regulatory certification "
+            "exposure (CE/FCC/BSTI), and IoT cybersecurity (secure boot, encrypted storage).\n"
+            "  LEADERSHIP & CULTURE FIT (for Hardware roles):\n"
+            "  Score leadership_score and culture_fit_score based on these soft skills & attributes:\n"
+            "  - Problem-solving ability: diagnose hardware faults systematically under time pressure\n"
+            "  - Detail-oriented: structured approach to documentation and testing\n"
+            "  - Cross-disciplinary collaboration: works across hardware, firmware, and software teams\n"
+            "  - Self-starter: manages tasks independently with minimal supervision\n"
+            "  - Communication: explains technical decisions to non-technical stakeholders\n"
+            "  - Field readiness: willingness to travel for installation, commissioning, troubleshooting\n"
+            "  Candidates showing 4+ of these traits should score 70+ on culture_fit_score.\n"
+            "  Leadership evidence includes: team coordination, mentoring juniors, project ownership,\n"
+            "  cross-functional coordination, and vendor/contractor management."
         ),
     },
 
@@ -1272,7 +1324,13 @@ def get_active_processing() -> list[dict]:
                         continue
                     e = ev.get("event")
                     if e == "start":
+                        # Reset counters on each new run so only the
+                        # latest run's progress is reported.
                         total = ev.get("total", 0)
+                        processed = 0
+                        errors = 0
+                        done = False
+                        last_ts = ev.get("ts")
                     elif e in ("ok", "ok_fallback", "error"):
                         processed += 1
                         if e == "error":
@@ -1281,6 +1339,12 @@ def get_active_processing() -> list[dict]:
                             last_ts = ev["ts"]
                     elif e == "done":
                         done = True
+                        # Prefer explicit completed/errors counts written by newer
+                        # ranker versions; fall back to the counters we tracked.
+                        if "completed" in ev:
+                            processed = ev["completed"]
+                        if "errors" in ev:
+                            errors = ev["errors"]
                         if "ts" in ev:
                             last_ts = ev["ts"]
             is_running = False

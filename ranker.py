@@ -28,6 +28,8 @@ import psycopg2
 from tqdm.asyncio import tqdm as tqdm_asyncio
 from tqdm import tqdm
 
+import bdjobs_features as bdf
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -44,6 +46,367 @@ RESUMES_BASE = os.environ.get(
 OLLAMA_HOST  = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_URL   = f"{OLLAMA_HOST}/api/chat"
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b-q4_K_M")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASK 7 — Centralized Scoring Configuration (single source of truth)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SCORING_CONFIG = {
+    # Education sub-component weights (must sum to 1.0)
+    "edu_weight_tier":   0.50,
+    "edu_weight_degree": 0.30,
+    "edu_weight_gpa":    0.20,
+
+    # University tier score anchors (0-100 scale)
+    "tier_1_score": 95,   # QS 1-100
+    "tier_2_score": 78,   # QS 101-300
+    "tier_3_score": 55,   # QS 301-600
+    "tier_4_score": 30,   # QS 601-1000
+    "tier_5_score": 15,   # Beyond 1000 or nationally recognized but unranked
+    "tier_unmatched_score": None,  # None = flag for manual review, do not default
+
+    # Bangladesh top-3 universities — treated as "near Tier 1" (Task 3 reconfiguration)
+    "bd_top_tier_score": 88,  # Between Tier 1 (95) and Tier 2 (78)
+    "bd_top_universities": {
+        "bangladesh university of engineering and technology",
+        "buet",
+        "university of dhaka",
+        "dhaka university",
+        "brac university",
+    },
+
+    # Degree level scores (0-100 scale)
+    "degree_phd":      100,
+    "degree_masters":   80,
+    "degree_prof_a":    80,   # CA, ACCA, CFA, CMA, CIA, CGMA, CISA, FCMA, FCA, ACS, FCS
+    "degree_bachelors": 60,
+    "degree_prof_b":    55,   # CIPS, PMP, Six Sigma Black Belt, CISSP, CCNA, SAP Certified
+    "degree_diploma":   40,
+    "degree_prof_c":    35,   # Short courses, vendor certs, BCS, short diplomas
+    "degree_hsc":       25,
+    "degree_ssc":       10,
+
+    # GPA normalization (default scale 4.0)
+    "gpa_default_scale": 4.0,
+    "gpa_out_of_range_action": "flag_review",  # "flag_review" or "clamp"
+
+    # Fuzzy-match threshold for university name matching (0-100)
+    "fuzzy_match_threshold": 75,
+
+    # OCR fallback threshold (chars)
+    "ocr_char_threshold": 200,
+
+    # Overall dimension weights (percent, sum to ~100)
+    "weight_skills":     50,
+    "weight_exp":        30,
+    "weight_edu":        20,
+    "weight_leadership": 10,
+    "weight_culture":     5,
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASK 3 — University Rankings Lookup Table (QS / THE world rankings)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+UNIVERSITY_RANKINGS: dict[str, dict] = {
+    # Tier 1 — QS World Top 100
+    "massachusetts institute of technology":     {"qs_rank": 1,   "tier": 1},
+    "mit":                                       {"qs_rank": 1,   "tier": 1},
+    "imperial college london":                   {"qs_rank": 2,   "tier": 1},
+    "imperial college":                          {"qs_rank": 2,   "tier": 1},
+    "university of oxford":                      {"qs_rank": 3,   "tier": 1},
+    "oxford":                                    {"qs_rank": 3,   "tier": 1},
+    "university of cambridge":                   {"qs_rank": 4,   "tier": 1},
+    "cambridge":                                 {"qs_rank": 4,   "tier": 1},
+    "harvard university":                        {"qs_rank": 5,   "tier": 1},
+    "harvard":                                   {"qs_rank": 5,   "tier": 1},
+    "stanford university":                       {"qs_rank": 6,   "tier": 1},
+    "stanford":                                  {"qs_rank": 6,   "tier": 1},
+    "eth zurich":                                {"qs_rank": 7,   "tier": 1},
+    "swiss federal institute of technology":     {"qs_rank": 7,   "tier": 1},
+    "national university of singapore":          {"qs_rank": 8,   "tier": 1},
+    "nus":                                       {"qs_rank": 8,   "tier": 1},
+    "university college london":                 {"qs_rank": 9,   "tier": 1},
+    "ucl":                                       {"qs_rank": 9,   "tier": 1},
+    "california institute of technology":        {"qs_rank": 10,  "tier": 1},
+    "caltech":                                   {"qs_rank": 10,  "tier": 1},
+    "university of pennsylvania":                {"qs_rank": 11,  "tier": 1},
+    "upenn":                                     {"qs_rank": 11,  "tier": 1},
+    "university of california berkeley":           {"qs_rank": 12,  "tier": 1},
+    "uc berkeley":                               {"qs_rank": 12,  "tier": 1},
+    "princeton university":                      {"qs_rank": 18,  "tier": 1},
+    "princeton":                                 {"qs_rank": 18,  "tier": 1},
+    "yale university":                           {"qs_rank": 23,  "tier": 1},
+    "yale":                                      {"qs_rank": 23,  "tier": 1},
+    "cornell university":                        {"qs_rank": 16,  "tier": 1},
+    "cornell":                                   {"qs_rank": 16,  "tier": 1},
+    "columbia university":                       {"qs_rank": 34,  "tier": 1},
+    "columbia":                                  {"qs_rank": 34,  "tier": 1},
+    "university of chicago":                     {"qs_rank": 21,  "tier": 1},
+    "chicago":                                   {"qs_rank": 21,  "tier": 1},
+    "peking university":                         {"qs_rank": 14,  "tier": 1},
+    "tsinghua university":                       {"qs_rank": 20,  "tier": 1},
+    "university of tokyo":                       {"qs_rank": 32,  "tier": 1},
+    "seoul national university":                 {"qs_rank": 31,  "tier": 1},
+    "snu":                                       {"qs_rank": 31,  "tier": 1},
+    "kaist":                                     {"qs_rank": 56,  "tier": 1},
+    "korea advanced institute of science and technology": {"qs_rank": 56, "tier": 1},
+    "iit bombay":                                {"qs_rank": 149, "tier": 2},  # Actually tier 2, but historically tier 1 in India
+    "indian institute of technology bombay":     {"qs_rank": 149, "tier": 2},
+    "iit delhi":                                 {"qs_rank": 150, "tier": 2},
+    "indian institute of technology delhi":      {"qs_rank": 150, "tier": 2},
+    "london school of economics":                {"qs_rank": 50,  "tier": 1},
+    "lse":                                       {"qs_rank": 50,  "tier": 1},
+
+    # Tier 2 — QS 101-300 (strong regional / top Asia)
+    "university of hong kong":                   {"qs_rank": 17,  "tier": 1},
+    "hku":                                       {"qs_rank": 17,  "tier": 1},
+    "hong kong university of science and technology": {"qs_rank": 47, "tier": 1},
+    "hkust":                                     {"qs_rank": 47, "tier": 1},
+    "nanyang technological university":          {"qs_rank": 15, "tier": 1},
+    "ntu":                                       {"qs_rank": 15, "tier": 1},
+    "university of edinburgh":                   {"qs_rank": 27, "tier": 1},
+    "edinburgh":                                 {"qs_rank": 27, "tier": 1},
+    "university of manchester":                  {"qs_rank": 34, "tier": 1},
+    "manchester":                                {"qs_rank": 34, "tier": 1},
+    "university of melbourne":                   {"qs_rank": 13, "tier": 1},
+    "melbourne":                                 {"qs_rank": 13, "tier": 1},
+    "university of sydney":                      {"qs_rank": 18, "tier": 1},
+    "sydney":                                    {"qs_rank": 18, "tier": 1},
+    "monash university":                         {"qs_rank": 37, "tier": 1},
+    "monash":                                    {"qs_rank": 37, "tier": 1},
+    "university of new south wales":             {"qs_rank": 19, "tier": 1},
+    "unsw":                                      {"qs_rank": 19, "tier": 1},
+    "anu":                                       {"qs_rank": 30, "tier": 1},
+    "australian national university":            {"qs_rank": 30, "tier": 1},
+    "university of queensland":                  {"qs_rank": 40, "tier": 1},
+    "university of toronto":                     {"qs_rank": 25, "tier": 1},
+    "toronto":                                   {"qs_rank": 25, "tier": 1},
+    "mcgill university":                         {"qs_rank": 29, "tier": 1},
+    "mcgill":                                    {"qs_rank": 29, "tier": 1},
+    "university of british columbia":            {"qs_rank": 38, "tier": 1},
+    "ubc":                                       {"qs_rank": 38, "tier": 1},
+
+    # Tier 2 — mid-range globally recognized
+    "university of glasgow":                     {"qs_rank": 78,  "tier": 2},
+    "glasgow":                                   {"qs_rank": 78,  "tier": 2},
+    "durham university":                         {"qs_rank": 89,  "tier": 2},
+    "durham":                                    {"qs_rank": 89,  "tier": 2},
+    "university of birmingham":                  {"qs_rank": 80,  "tier": 2},
+    "birmingham":                                {"qs_rank": 80,  "tier": 2},
+    "university of leeds":                       {"qs_rank": 82,  "tier": 2},
+    "leeds":                                     {"qs_rank": 82,  "tier": 2},
+    "university of nottingham":                  {"qs_rank": 108, "tier": 2},
+    "nottingham":                                {"qs_rank": 108, "tier": 2},
+    "university of southampton":                 {"qs_rank": 80,  "tier": 2},
+    "southampton":                               {"qs_rank": 80,  "tier": 2},
+    "university of sheffield":                   {"qs_rank": 105, "tier": 2},
+    "sheffield":                                 {"qs_rank": 105, "tier": 2},
+    "university of exeter":                      {"qs_rank": 153, "tier": 2},
+    "exeter":                                    {"qs_rank": 153, "tier": 2},
+    "lancaster university":                      {"qs_rank": 141, "tier": 2},
+    "lancaster":                                 {"qs_rank": 141, "tier": 2},
+    "university of york":                        {"qs_rank": 167, "tier": 2},
+    "york":                                      {"qs_rank": 167, "tier": 2},
+    "cardiff university":                        {"qs_rank": 154, "tier": 2},
+    "cardiff":                                   {"qs_rank": 154, "tier": 2},
+    "university of liverpool":                   {"qs_rank": 165, "tier": 2},
+    "liverpool":                                 {"qs_rank": 165, "tier": 2},
+    "university of reading":                     {"qs_rank": 172, "tier": 2},
+    "reading":                                   {"qs_rank": 172, "tier": 2},
+    "queen mary university of london":           {"qs_rank": 120, "tier": 2},
+    "qmul":                                      {"qs_rank": 120, "tier": 2},
+    "newcastle university":                      {"qs_rank": 129, "tier": 2},
+    "newcastle":                                 {"qs_rank": 129, "tier": 2},
+    "university of warwick":                     {"qs_rank": 69,  "tier": 2},
+    "warwick":                                   {"qs_rank": 69,  "tier": 2},
+    "university of bath":                      {"qs_rank": 150, "tier": 2},
+    "bath":                                      {"qs_rank": 150, "tier": 2},
+    "university of sussex":                      {"qs_rank": 218, "tier": 2},
+    "sussex":                                    {"qs_rank": 218, "tier": 2},
+    "university of essex":                     {"qs_rank": 272, "tier": 2},
+    "essex":                                     {"qs_rank": 272, "tier": 2},
+    "university of surrey":                    {"qs_rank": 285, "tier": 2},
+    "surrey":                                    {"qs_rank": 285, "tier": 2},
+    "university of leicester":                   {"qs_rank": 272, "tier": 2},
+    "leicester":                                 {"qs_rank": 272, "tier": 2},
+
+    # Tier 3 — QS 301-600
+    "university of aberdeen":                  {"qs_rank": 236, "tier": 2},  # actually tier 2
+    "aberdeen":                                  {"qs_rank": 236, "tier": 2},
+    "heriot-watt university":                    {"qs_rank": 256, "tier": 2},
+    "heriot-watt":                               {"qs_rank": 256, "tier": 2},
+    "university of dundee":                      {"qs_rank": 316, "tier": 3},
+    "dundee":                                    {"qs_rank": 316, "tier": 3},
+    "university of strathclyde":                 {"qs_rank": 281, "tier": 2},
+    "strathclyde":                               {"qs_rank": 281, "tier": 2},
+    "swansea university":                        {"qs_rank": 298, "tier": 2},
+    "swansea":                                   {"qs_rank": 298, "tier": 2},
+    "brunel university london":                  {"qs_rank": 342, "tier": 3},
+    "brunel":                                    {"qs_rank": 342, "tier": 3},
+    "university of bradford":                    {"qs_rank": 531, "tier": 3},
+    "bradford":                                  {"qs_rank": 531, "tier": 3},
+    "university of huddersfield":              {"qs_rank": 501, "tier": 3},
+    "huddersfield":                              {"qs_rank": 501, "tier": 3},
+    "middlesex university":                      {"qs_rank": 601, "tier": 4},
+    "middlesex":                                 {"qs_rank": 601, "tier": 4},
+    "coventry university":                       {"qs_rank": 526, "tier": 3},
+    "coventry":                                  {"qs_rank": 526, "tier": 3},
+    "university of greenwich":                 {"qs_rank": 531, "tier": 3},
+    "greenwich":                                 {"qs_rank": 531, "tier": 3},
+    "university of east london":                 {"qs_rank": 801, "tier": 4},
+    "uel":                                       {"qs_rank": 801, "tier": 4},
+    "london metropolitan university":            {"qs_rank": 1001,"tier": 5},
+    "london met":                                {"qs_rank": 1001,"tier": 5},
+    "university of bedfordshire":                {"qs_rank": 851, "tier": 4},
+    "bedfordshire":                              {"qs_rank": 851, "tier": 4},
+    "university of wolverhampton":               {"qs_rank": 851, "tier": 4},
+    "wolverhampton":                             {"qs_rank": 851, "tier": 4},
+    "university of west london":                 {"qs_rank": 801, "tier": 4},
+    "canterbury christ church university":       {"qs_rank": 1001,"tier": 5},
+    "canterbury christ church":                  {"qs_rank": 1001,"tier": 5},
+    "university of chester":                     {"qs_rank": 1001,"tier": 5},
+    "chester":                                   {"qs_rank": 1001,"tier": 5},
+
+    # Tier 3-4 — Other major Asian universities
+    "fudan university":                          {"qs_rank": 50,  "tier": 1},
+    "fudan":                                     {"qs_rank": 50,  "tier": 1},
+    "shanghai jiao tong university":             {"qs_rank": 45,  "tier": 1},
+    "sjtu":                                      {"qs_rank": 45,  "tier": 1},
+    "zhejiang university":                       {"qs_rank": 47,  "tier": 1},
+    "zhejiang":                                  {"qs_rank": 47,  "tier": 1},
+    "university of science and technology of china": {"qs_rank": 133, "tier": 2},
+    "ustc":                                      {"qs_rank": 133, "tier": 2},
+    "nanjing university":                        {"qs_rank": 145, "tier": 2},
+    "nanjing":                                   {"qs_rank": 145, "tier": 2},
+    "beijing university":                        {"qs_rank": 14,  "tier": 1},
+    "beijing":                                   {"qs_rank": 14,  "tier": 1},
+
+    # Tier 2-3 — South Asia / Southeast Asia
+    "university of the philippines":             {"qs_rank": 336, "tier": 3},
+    "up diliman":                                {"qs_rank": 336, "tier": 3},
+    "ateneo de manila university":               {"qs_rank": 563, "tier": 3},
+    "ateneo":                                    {"qs_rank": 563, "tier": 3},
+    "de la salle university":                    {"qs_rank": 641, "tier": 4},
+    "university of indonesia":                   {"qs_rank": 237, "tier": 2},
+    "ui":                                        {"qs_rank": 237, "tier": 2},
+    "bandung institute of technology":           {"qs_rank": 281, "tier": 2},
+    "itb":                                       {"qs_rank": 281, "tier": 2},
+    "universiti of malaya":                      {"qs_rank": 60,  "tier": 1},
+    "um":                                        {"qs_rank": 60,  "tier": 1},
+    "universiti kebangsaan malaysia":            {"qs_rank": 138, "tier": 2},
+    "ukm":                                       {"qs_rank": 138, "tier": 2},
+    "universiti putra malaysia":                 {"qs_rank": 148, "tier": 2},
+    "upm":                                       {"qs_rank": 148, "tier": 2},
+    "universiti sains malaysia":                 {"qs_rank": 146, "tier": 2},
+    "usm":                                       {"qs_rank": 146, "tier": 2},
+    "universiti teknologi malaysia":             {"qs_rank": 181, "tier": 2},
+    "utm":                                       {"qs_rank": 181, "tier": 2},
+    "chulalongkorn university":                  {"qs_rank": 211, "tier": 2},
+    "chula":                                     {"qs_rank": 211, "tier": 2},
+    "mahidol university":                        {"qs_rank": 382, "tier": 3},
+    "mahidol":                                   {"qs_rank": 382, "tier": 3},
+    "thammasat university":                      {"qs_rank": 451, "tier": 3},
+    "thammasat":                                 {"qs_rank": 451, "tier": 3},
+
+    # Tier 2-4 — Bangladesh and South Asia
+    # NOTE: Bangladesh top 3 are handled separately via bd_top_universities config
+    # but we also list them here with their approximate QS Asia ranks for reference
+    "bangladesh university of engineering and technology": {"qs_rank": None, "tier": None, "bd_top": True},
+    "buet":                                      {"qs_rank": None, "tier": None, "bd_top": True},
+    "university of dhaka":                       {"qs_rank": None, "tier": None, "bd_top": True},
+    "dhaka university":                          {"qs_rank": None, "tier": None, "bd_top": True},
+    "brac university":                           {"qs_rank": None, "tier": None, "bd_top": True},
+    "north south university":                    {"qs_rank": 1001, "tier": 5},
+    "nsu":                                       {"qs_rank": 1001, "tier": 5},
+    "east west university":                      {"qs_rank": 1001, "tier": 5},
+    "ewu":                                       {"qs_rank": 1001, "tier": 5},
+    "independent university bangladesh":         {"qs_rank": 1001, "tier": 5},
+    "iub":                                       {"qs_rank": 1001, "tier": 5},
+    "american international university bangladesh":{"qs_rank": 1001, "tier": 5},
+    "aiub":                                      {"qs_rank": 1001, "tier": 5},
+    "daffodil international university":         {"qs_rank": 1001, "tier": 5},
+    "diu":                                       {"qs_rank": 1001, "tier": 5},
+    "university of liberal arts bangladesh":    {"qs_rank": 1001, "tier": 5},
+    "ulab":                                      {"qs_rank": 1001, "tier": 5},
+    "international university of business agriculture and technology": {"qs_rank": 1001, "tier": 5},
+    "iubat":                                     {"qs_rank": 1001, "tier": 5},
+    "united international university":           {"qs_rank": 1001, "tier": 5},
+    "uiu":                                       {"qs_rank": 1001, "tier": 5},
+    "southeast university":                      {"qs_rank": 1001, "tier": 5},
+    "seu":                                       {"qs_rank": 1001, "tier": 5},
+    "green university of bangladesh":           {"qs_rank": 1001, "tier": 5},
+    "gub":                                       {"qs_rank": 1001, "tier": 5},
+    "bangladesh university":                     {"qs_rank": 1001, "tier": 5},
+    "stamford university bangladesh":            {"qs_rank": 1001, "tier": 5},
+    "leading university":                        {"qs_rank": 1001, "tier": 5},
+    "premier university":                        {"qs_rank": 1001, "tier": 5},
+    "northern university bangladesh":           {"qs_rank": 1001, "tier": 5},
+    "pundra university of science and technology":{"qs_rank": 1001, "tier": 5},
+    "victoria university of bangladesh":        {"qs_rank": 1001, "tier": 5},
+    "royal university of dhaka":                {"qs_rank": 1001, "tier": 5},
+    "world university of bangladesh":           {"qs_rank": 1001, "tier": 5},
+    "sonargaon university":                        {"qs_rank": 1001, "tier": 5},
+    "european university of bangladesh":        {"qs_rank": 1001, "tier": 5},
+    "atish dipankar university of science and technology": {"qs_rank": 1001, "tier": 5},
+    "adust":                                     {"qs_rank": 1001, "tier": 5},
+    "central university":                         {"qs_rank": 1001, "tier": 5},
+    "mannan university":                          {"qs_rank": 1001, "tier": 5},
+    "global university bangladesh":             {"qs_rank": 1001, "tier": 5},
+    "jagannath university":                       {"qs_rank": 1001, "tier": 5},
+    "jnu":                                        {"qs_rank": 1001, "tier": 5},
+    "mawlana bhashani science and technology university": {"qs_rank": 1001, "tier": 5},
+    "mbstu":                                      {"qs_rank": 1001, "tier": 5},
+    "noakhali science and technology university": {"qs_rank": 1001, "tier": 5},
+    "nstu":                                       {"qs_rank": 1001, "tier": 5},
+    "pabna university of science and technology": {"qs_rank": 1001, "tier": 5},
+    "pust":                                       {"qs_rank": 1001, "tier": 5},
+    "patuakhali science and technology university": {"qs_rank": 1001, "tier": 5},
+    "hajee mohammad danesh science and technology university": {"qs_rank": 1001, "tier": 5},
+    "hstu":                                       {"qs_rank": 1001, "tier": 5},
+    "begum rokeya university":                    {"qs_rank": 1001, "tier": 5},
+    "jessore university of science and technology": {"qs_rank": 1001, "tier": 5},
+    "just":                                       {"qs_rank": 1001, "tier": 5},
+    "shahjalal university of science and technology": {"qs_rank": 1001, "tier": 5},
+    "sust":                                       {"qs_rank": 1001, "tier": 5},
+    "khulna university":                           {"qs_rank": 1001, "tier": 5},
+    "ku":                                         {"qs_rank": 1001, "tier": 5},
+    "rajshahi university":                         {"qs_rank": 1001, "tier": 5},
+    "ru":                                         {"qs_rank": 1001, "tier": 5},
+    "jagannath university dhaka":                  {"qs_rank": 1001, "tier": 5},
+    "comilla university":                          {"qs_rank": 1001, "tier": 5},
+    "barisal university":                          {"qs_rank": 1001, "tier": 5},
+    "sylhet agricultural university":            {"qs_rank": 1001, "tier": 5},
+    "sher-e-bangla agricultural university":     {"qs_rank": 1001, "tier": 5},
+    "chittagong university of engineering and technology": {"qs_rank": 1001, "tier": 5},
+    "cuet":                                       {"qs_rank": 1001, "tier": 5},
+    "rajshahi university of engineering and technology": {"qs_rank": 1001, "tier": 5},
+    "ruet":                                       {"qs_rank": 1001, "tier": 5},
+    "khulna university of engineering and technology": {"qs_rank": 1001, "tier": 5},
+    "kuet":                                       {"qs_rank": 1001, "tier": 5},
+    "dhaka university of engineering and technology": {"qs_rank": 1001, "tier": 5},
+    "duet":                                       {"qs_rank": 1001, "tier": 5},
+    "jahangirnagar university":                    {"qs_rank": 1001, "tier": 5},
+    "ju":                                         {"qs_rank": 1001, "tier": 5},
+    "university of chittagong":                    {"qs_rank": 1001, "tier": 5},
+    "chittagong university":                       {"qs_rank": 1001, "tier": 5},
+    "cu":                                         {"qs_rank": 1001, "tier": 5},
+    "national university bangladesh":              {"qs_rank": 1001, "tier": 5},
+    "nu":                                         {"qs_rank": 1001, "tier": 5},
+    "open university":                             {"qs_rank": 1001, "tier": 5},
+    "bou":                                        {"qs_rank": 1001, "tier": 5},
+    "islamic university":                          {"qs_rank": 1001, "tier": 5},
+    "iu":                                         {"qs_rank": 1001, "tier": 5},
+    "gono bishwabidyalay":                         {"qs_rank": 1001, "tier": 5},
+    "rabindra university":                        {"qs_rank": 1001, "tier": 5},
+    " Sheikh Hasina University":                   {"qs_rank": 1001, "tier": 5},
+    "madan mohan university":                     {"qs_rank": 1001, "tier": 5},
+    "chandpur science and technology university": {"qs_rank": 1001, "tier": 5},
+    "bscic":                                      {"qs_rank": 1001, "tier": 5},
+    "faridpur science and technology university": {"qs_rank": 1001, "tier": 5},
+    "fstu":                                       {"qs_rank": 1001, "tier": 5},
+    "habiganj agriculture university":            {"qs_rank": 1001, "tier": 5},
+}
 
 PG_CONN = {
     "host":     os.environ.get("PG_HOST", "localhost"),
@@ -70,6 +433,7 @@ REQUIRED_COLUMNS = {
     "edu_tier_score", "edu_degree_score", "edu_gpa_score",
     "experience_years", "strengths", "gaps", "risk_flags",
     "recommendation", "reasoning", "ranked_at", "rank_error",
+    "review_flags",
 }
 
 CREATE_TABLE_SQL = """
@@ -99,6 +463,7 @@ CREATE TABLE IF NOT EXISTS candidates (
     reasoning         TEXT,
     ranked_at         TIMESTAMP DEFAULT NOW(),
     rank_error        TEXT,
+    review_flags      TEXT[],
     UNIQUE (job_label, apply_id)
 );
 CREATE INDEX IF NOT EXISTS idx_job_label      ON candidates(job_label);
@@ -147,6 +512,8 @@ RANKING_PROMPT_TEMPLATE = """Evaluate this candidate for the following role.
 {jd_block}
 {role_block}
 {dept_skills_block}
+The candidate profile below is in BDJobs Bangladesh format. Sections are labeled in square brackets (e.g., [Employment History], [Academic Qualification], [Skills]). Read the sections in order; experience and skills are in their labeled sections, not in the header. If an [UPLOADED CV] section is present, it is the candidate's original CV and may contain additional detail.
+
 --- CANDIDATE PROFILE START ---
 {profile_text}
 --- CANDIDATE PROFILE END ---
@@ -172,8 +539,10 @@ Score the candidate and return ONLY this JSON (no markdown, no preamble):
   "gaps": ["<gap1>", "<gap2>"],
   "risk_flags": ["<flag1>"],
   "recommendation": "<Shortlist|Maybe|Reject>",
-  "reasoning": "<2 sentence summary of the candidate>"
+  "reasoning": "<2-3 sentence evidence-based summary of the candidate. MANDATORY: this field must not be empty. Explain why the scores were given, citing the candidate's key strengths, gaps, and fit for the role.>"
 }}
+
+IMPORTANT: Every response must include a non-empty "reasoning" string. The AI Summary is shown to HR and must justify the scores with concrete evidence from the profile.
 
 SCORING BANDS (anchor your scores to these, not to vibes):
   90-100 : Exceptional match — clearly exceeds requirements with strong evidence
@@ -619,6 +988,12 @@ def build_department_skills_block(department: str, job_config: dict) -> str:
         lines.append("SKILLS IRRELEVANT FOR THIS ROLE (do NOT inflate skills_score for these):")
         lines.append("  " + ", ".join(anti))
 
+    soft = profile.get("soft_skills") or []
+    if soft:
+        lines.append("SOFT SKILLS & ATTRIBUTES (use for leadership_score and culture_fit_score):")
+        for s in soft:
+            lines.append(f"  - {s}")
+
     job_req = list(job_config.get("required_skills") or [])
     if job_req:
         lines.append("JOB-SPECIFIC REQUIRED SKILLS:")
@@ -703,7 +1078,12 @@ def _parse_date_token(token: str) -> "datetime.date | None":
 
 
 def _extract_employment_section(txt: str) -> str:
-    """Extract just the Employment History section from profile text."""
+    """Extract just the Employment History section from profile text.
+    Uses the BDJobs parser first, then falls back to marker-based extraction."""
+    bdjobs = parse_bdjobs_cv(txt)
+    if "Employment History" in bdjobs:
+        return bdjobs["Employment History"]
+
     lower = txt.lower()
     start_markers = ["employment history:", "work experience:", "professional experience:"]
     end_markers = ["academic qualification:", "education:", "training summary:",
@@ -849,6 +1229,101 @@ def detect_rule_based_flags(profile_text: str) -> list[str]:
     return flags[:6]   # SCORE-06: cap raised from 5 to 6 to surface the new signals.
 
 
+def _normalize_university_name(name: str) -> str:
+    if not name:
+        return ""
+    n = name.lower()
+    n = re.sub(r"[^\w\s]", " ", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    return n
+
+def _fuzzy_match_university(candidate_name: str):
+    if not candidate_name:
+        return None, 0, None
+    norm = _normalize_university_name(candidate_name)
+    if not norm:
+        return None, 0, None
+    threshold = SCORING_CONFIG["fuzzy_match_threshold"]
+    if norm in UNIVERSITY_RANKINGS:
+        return norm, 100, UNIVERSITY_RANKINGS[norm]
+    if norm in SCORING_CONFIG["bd_top_universities"]:
+        return norm, 100, {"bd_top": True}
+    best_key = None
+    best_score = 0
+    c_tokens = set(norm.split())
+    for key, data in UNIVERSITY_RANKINGS.items():
+        k_tokens = set(key.split())
+        if not c_tokens or not k_tokens:
+            continue
+        inter = c_tokens & k_tokens
+        union = c_tokens | k_tokens
+        score = int(len(inter) / len(union) * 100) if union else 0
+        if norm in key or key in norm:
+            score = max(score, 85)
+        if score > best_score:
+            best_score = score
+            best_key = key
+    if best_key and best_score >= threshold:
+        return best_key, best_score, UNIVERSITY_RANKINGS[best_key]
+    for bd in SCORING_CONFIG["bd_top_universities"]:
+        b_tokens = set(bd.split())
+        if not c_tokens or not b_tokens:
+            continue
+        inter = c_tokens & b_tokens
+        union = c_tokens | b_tokens
+        score = int(len(inter) / len(union) * 100) if union else 0
+        if norm in bd or bd in norm:
+            score = max(score, 90)
+        if score >= threshold:
+            return bd, score, {"bd_top": True}
+    return None, best_score, None
+
+def compute_university_tier_score(institution_name: str | None):
+    flags = []
+    if not institution_name or not str(institution_name).strip():
+        flags.append("University name missing — tier unscored")
+        return 0, flags
+    matched, confidence, data = _fuzzy_match_university(str(institution_name))
+    if not matched or data is None:
+        flags.append(f"Unmatched institution '{institution_name}' (confidence {confidence}%) — tier unscored")
+        return 0, flags
+    if data.get("bd_top"):
+        return SCORING_CONFIG["bd_top_tier_score"], flags
+    tier = data.get("tier")
+    if tier == 1:
+        return SCORING_CONFIG["tier_1_score"], flags
+    elif tier == 2:
+        return SCORING_CONFIG["tier_2_score"], flags
+    elif tier == 3:
+        return SCORING_CONFIG["tier_3_score"], flags
+    elif tier == 4:
+        return SCORING_CONFIG["tier_4_score"], flags
+    elif tier == 5:
+        return SCORING_CONFIG["tier_5_score"], flags
+    flags.append(f"Unknown tier for '{institution_name}' — tier unscored")
+    return 0, flags
+
+def _extract_university_from_text(text: str) -> str:
+    if not text:
+        return ""
+    lines = text.split("\n")
+    for line in lines:
+        lower = line.lower()
+        if any(m in lower for m in ("university:", "institution:", "college:", "alma mater:", "educational qualification", "academic qualification", "education:")):
+            parts = line.split(":", 1)
+            if len(parts) > 1:
+                c = parts[1].strip()
+                if len(c) > 3:
+                    return c
+    for line in lines[:30]:
+        m = re.search(r"([A-Z][a-zA-Z\s]+University(?:\s+of\s+[A-Z][a-zA-Z\s]+)?)", line)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r"(University\s+of\s+[A-Z][a-zA-Z\s]+)", line)
+        if m:
+            return m.group(1).strip()
+    return ""
+
 def build_rule_flags_block(flags: list[str]) -> str:
     if not flags:
         return ""
@@ -860,46 +1335,86 @@ def build_rule_flags_block(flags: list[str]) -> str:
 
 
 
-def extract_rule_based_assessment(profile_text: str) -> dict:
+def extract_rule_based_assessment(profile_text: str, features: dict | None = None) -> dict:
     """Extract deterministic strengths, gaps, and risk flags from CV text
     when the LLM fails to produce valid JSON. This provides meaningful
-    fallback content instead of empty defaults."""
+    fallback content instead of empty defaults.
+
+    When structured ``features`` (from bdjobs_features.build_candidate_features)
+    are supplied, they take precedence over naive keyword matching so the
+    assessment reflects the real CV instead of emitting false gaps such as
+    "No English proficiency" when the Language Proficiency table is present.
+    """
     txt = (profile_text or "").lower()
+    f = features or {}
     strengths = []
     gaps = []
     risk_flags = []
 
-    # Strengths: hard-skill signals
-    if any(k in txt for k in ("bsc", "msc", "bba", "mba", "ca", "acca", "cma", "phd")):
-        strengths.append("Relevant academic qualification")
-    if any(k in txt for k in ("3+ years", "4+ years", "5+ years", "6+ years", "7+ years", "8+ years", "10+ years")):
-        strengths.append(f"{sum(1 for _ in ('3+ years', '4+ years', '5+ years', '6+ years', '7+ years', '8+ years', '10+ years') if _ in txt)}+ years experience")
+    # ── Experience (prefer the parsed total) ──────────────────────────────
+    total_exp = f.get("total_years_experience")
+    if total_exp:
+        strengths.append(f"{total_exp:g} years total experience")
+    elif any(k in txt for k in ("3+ years", "4+ years", "5+ years", "6+ years", "7+ years", "8+ years", "10+ years")):
+        n = sum(1 for t in ('3+ years', '4+ years', '5+ years', '6+ years', '7+ years', '8+ years', '10+ years') if t in txt)
+        strengths.append(f"{n}+ years experience")
+
+    # ── Academic qualification (prefer parsed degree) ─────────────────────
+    has_degree = bool(f.get("degree_level")) or any(
+        k in txt for k in ("bsc", "msc", "bba", "mba", "ca", "acca", "cma", "phd")
+    )
+    if has_degree:
+        label = (f.get("degree_label") or "").upper()
+        strengths.append(f"Relevant academic qualification{f' ({label})' if label else ''}")
+
+    # ── English proficiency (prefer parsed Language Proficiency table) ────
+    eng = f.get("english")
+    has_english = f.get("has_english_evidence")
+    if has_english is None:
+        has_english = ("english" in txt or "ielts" in txt or "toefl" in txt)
+    if has_english and eng:
+        strengths.append(
+            f"English proficiency (R:{eng.get('reading','?').title()}/"
+            f"W:{eng.get('writing','?').title()}/S:{eng.get('speaking','?').title()})"
+        )
+
+    # ── Leadership (prefer parsed leadership signal) ──────────────────────
+    has_leadership = f.get("has_leadership_evidence")
+    if has_leadership is None:
+        has_leadership = any(k in txt for k in ("team lead", "supervisor", "manager", "head of", "director"))
+    if has_leadership:
+        strengths.append("Leadership / supervisory experience")
+
+    # ── Certifications ────────────────────────────────────────────────────
+    certs = f.get("certifications") or []
+    if certs:
+        strengths.append("Certifications: " + ", ".join(certs[:4]))
+
+    # ── Industry / company background ─────────────────────────────────────
     if any(k in txt for k in ("fmcg", "olympic", "pran", "nestle", "unilever", "square", "akash")):
         strengths.append("FMCG industry experience")
-    if "top tier" in txt or "leading" in txt or "reputed" in txt:
-        strengths.append("Top-tier company background")
-    if any(k in txt for k in ("team lead", "supervisor", "manager", "head of", "director")):
-        strengths.append("Leadership / supervisory role")
-    if any(k in txt for k in ("buet", "du", "dhaka university", "brac", "nsu", "north south")):
-        strengths.append("Reputable university")
 
-    # Gaps: missing signals
+    # ── Gaps: only emit when the evidence is genuinely absent ─────────────
     if not any(k in txt for k in ("fmcg", "olympic", "pran", "nestle", "unilever", "square")):
         gaps.append("No FMCG industry exposure")
-    if "english" not in txt and "ielts" not in txt and "toefl" not in txt:
+    if not has_english:
         gaps.append("No English proficiency evidence stated")
-    if len(profile_text or "") < 800:
-        gaps.append("Very brief profile — limited detail for assessment")
-    if not any(k in txt for k in ("lead", "manage", "supervise", "head", "director")):
+    if not has_leadership:
         gaps.append("No leadership / team management evidence")
+    if not f.get("gpa_value") and not _RE_GPA.search(profile_text or ""):
+        gaps.append("GPA / CGPA not stated")
+    if not total_exp and len(profile_text or "") < 800:
+        gaps.append("Very brief profile — limited detail for assessment")
 
-    # Risk flags
-    job_changes = len(re.findall(r'(19|20)\d{2}.*?(?:present|continuing|till now)', txt, re.IGNORECASE))
-    if job_changes >= 4:
-        risk_flags.append(f"{job_changes} job changes — possible instability")
+    # ── Risk flags ────────────────────────────────────────────────────────
+    job_count = len(f.get("jobs") or [])
+    if job_count == 0:
+        job_count = len(re.findall(r'(19|20)\d{2}.*?(?:present|continuing|till now)', txt, re.IGNORECASE))
+    if job_count >= 5:
+        risk_flags.append(f"{job_count} jobs listed — possible instability")
     if "terminated" in txt or "fired" in txt or "dismissed" in txt:
         risk_flags.append("Employment termination mentioned")
-    if not any(k in txt for k in ("bsc", "msc", "bba", "mba", "diploma", "hsc")):
+    if not has_degree:
         risk_flags.append("No clear degree qualification found")
 
     return {
@@ -907,6 +1422,139 @@ def extract_rule_based_assessment(profile_text: str) -> dict:
         "gaps": gaps[:5],
         "risk_flags": risk_flags[:5],
     }
+
+
+def generate_reasoning_from_assessment(profile_text: str, scores: dict, features: dict | None = None) -> str:
+    """Generate a human-readable 2-sentence reasoning summary when the LLM
+    leaves the reasoning field empty. Uses the rule-based assessment and the
+    dimension scores so the AI Summary is never blank.
+    """
+    rule = extract_rule_based_assessment(profile_text, features)
+    strengths = rule.get("strengths") or []
+    gaps = rule.get("gaps") or []
+    risk_flags = rule.get("risk_flags") or []
+    overall = int(scores.get("overall_score", 0) or 0)
+    exp_years = float(scores.get("experience_years", 0) or 0)
+    recommendation = str(scores.get("recommendation", "Maybe"))
+
+    parts = []
+    if overall >= 70:
+        parts.append(f"Strong overall profile (score {overall}) with a solid fit for the role.")
+    elif overall >= 50:
+        parts.append(f"Moderate overall fit (score {overall}) with both relevant strengths and some gaps.")
+    elif overall >= 30:
+        parts.append(f"Limited overall fit (score {overall}) with several gaps against the role requirements.")
+    else:
+        parts.append(f"Weak overall fit (score {overall}) and significant gaps for the role.")
+
+    if strengths:
+        parts.append(f"Strengths: {', '.join(strengths[:3])}.")
+    if gaps:
+        parts.append(f"Gaps: {', '.join(gaps[:3])}.")
+    if risk_flags and not gaps:
+        parts.append(f"Risk flags: {', '.join(risk_flags[:2])}.")
+    if exp_years > 0 and not strengths and not gaps:
+        parts.append(f"Experience: {exp_years:.1f} years reported.")
+
+    # Trim to ~2-3 sentences by keeping the first substantive parts.
+    summary = " ".join(parts[:3]).strip()
+    if not summary or summary in ("—", "-"):
+        summary = f"Candidate evaluated at score {overall} ({recommendation}). No detailed assessment could be generated from the available profile text."
+    return summary[:500]
+
+
+def select_profile_and_features(profile_text: str, pdf_text: str, pdf_exists: bool):
+    """Choose the richest BDJobs text for parsing/scoring and build structured
+    features from it.
+
+    The downloaded ``profiles_txt`` file is often only a metadata stub
+    (``=== BDJobs Candidate Profile ===`` header) while the full sectioned CV
+    lives in the uploaded PDF. We parse features from whichever source actually
+    contains BDJobs sections, and we promote that richer text to the LLM input
+    when the profile file is just the stub.
+
+    Returns ``(llm_profile_text, pdf_for_llm, features)``. ``pdf_for_llm`` is
+    empty when the PDF text was already promoted to the primary profile, so
+    the LLM prompt does not duplicate the same content under "UPLOADED CV".
+    """
+    profile_text = profile_text or ""
+    pdf_text = pdf_text or ""
+
+    canonical = ""
+    for t in (pdf_text, profile_text):
+        if t and bdf.looks_like_bdjobs_cv(t):
+            canonical = t
+            break
+    if not canonical:
+        canonical = pdf_text or profile_text
+
+    features = bdf.build_candidate_features(canonical, uploaded_cv=pdf_exists)
+
+    # If the profile file is just the metadata stub, prefer the richer text.
+    is_stub = (
+        profile_text.strip().startswith("=== BDJobs Candidate Profile ===")
+        or not bdf.looks_like_bdjobs_cv(profile_text)
+    )
+    llm_profile = profile_text
+    pdf_for_llm = pdf_text
+    if is_stub and bdf.looks_like_bdjobs_cv(canonical) and canonical != profile_text:
+        llm_profile = canonical
+        pdf_for_llm = ""  # already the primary source
+    return llm_profile, pdf_for_llm, features
+
+
+def enrich_scores_with_features(scores: dict, features: dict | None, meta: dict,
+                                cv_text: str = "") -> None:
+    """Feed structured BDJobs features into the scoring inputs and metadata.
+
+    Mutates ``scores`` and ``meta`` in place. MUST be called before
+    compute_education_score() so the deterministic degree/GPA sub-scores are
+    included. Does not change any scoring weights.
+
+    When the LLM returns 0 for leadership_score or culture_fit_score,
+    deterministic estimators based on parsed job titles, leadership verbs,
+    soft-skill keywords, stability, and certifications provide a reasonable
+    fallback instead of leaving the candidate unscored.
+    """
+    if not features:
+        return
+
+    # Experience: prefer the CV's printed total over the LLM's guess.
+    total_exp = features.get("total_years_experience")
+    if total_exp is not None:
+        try:
+            scores["experience_years"] = float(total_exp)
+        except (ValueError, TypeError):
+            pass
+
+    # Education sub-scores: supply deterministic values when the LLM gave 0.
+    if not scores.get("edu_degree_score") and features.get("degree_level"):
+        scores["edu_degree_score"] = bdf.degree_level_to_score(
+            features.get("degree_label"), features.get("degree_level")
+        )
+    if not scores.get("edu_gpa_score") and features.get("gpa_value") is not None:
+        scores["edu_gpa_score"] = bdf.gpa_to_score(
+            features.get("gpa_value"), features.get("gpa_scale")
+        )
+
+    # Leadership: deterministic fallback when the LLM gave 0.
+    if not scores.get("leadership_score"):
+        est = bdf.estimate_leadership_score(features, cv_text)
+        if est > 0:
+            scores["leadership_score"] = est
+
+    # Culture fit: deterministic fallback when the LLM gave 0.
+    if not scores.get("culture_fit_score"):
+        est = bdf.estimate_culture_fit_score(features, cv_text)
+        if est > 0:
+            scores["culture_fit_score"] = est
+
+    # Metadata: rebuild experience_detail from ALL parsed jobs; set CV flag.
+    if features.get("experience_detail"):
+        meta["experience_detail"] = features["experience_detail"]
+    if features.get("uploaded_cv"):
+        meta["has_uploaded_cv"] = True
+
 
 JD_BLOCK_TEMPLATE = """--- JOB DESCRIPTION START ---
 {jd_text}
@@ -936,6 +1584,77 @@ async def write_progress_async(lock: asyncio.Lock, log_path: str, data: dict):
 def _append_file(path: str, line: str):
     with open(path, "a", encoding="utf-8") as f:
         f.write(line)
+
+
+# ── Durable checkpoint (survives restart / crash) ─────────────────────────────
+
+def _get_checkpoint_file(job_dir: str) -> str:
+    """Return the path to the durable checkpoint JSON for a job."""
+    return os.path.join(job_dir, "_ranker_checkpoint.json")
+
+
+def load_checkpoint(job_dir: str) -> dict | None:
+    """Load a durable per-file checkpoint if it exists.
+
+    Returns a dict with keys:
+        job: str
+        started_at: str (ISO)
+        last_updated: str (ISO)
+        total_files: int
+        files: dict[str, dict]  # basename -> {"status": ..., "score": ..., "error": ..., "updated_at": ...}
+    """
+    path = _get_checkpoint_file(job_dir)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            cp = json.load(f)
+        if isinstance(cp, dict) and "files" in cp and isinstance(cp["files"], dict):
+            return cp
+    except Exception as e:
+        print(f"[CHECKPOINT] Warning: could not load checkpoint: {e}")
+    return None
+
+
+def save_checkpoint(job_dir: str, checkpoint: dict) -> None:
+    """Atomically write the checkpoint JSON so a crash mid-write never corrupts it."""
+    path = _get_checkpoint_file(job_dir)
+    tmp_path = path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(checkpoint, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, path)
+    except Exception as e:
+        print(f"[CHECKPOINT] Warning: could not save checkpoint: {e}")
+
+
+# ── Pause/Resume mechanism (file-based signal) ────────────────────────────────
+
+def _get_pause_file(job_dir: str) -> str:
+    """Return the path to the pause signal file for a job."""
+    return os.path.join(job_dir, "_ranker_paused")
+
+
+async def _wait_if_paused(job_dir: str, log_lock: asyncio.Lock, log_path: str):
+    """Block (async-friendly) while _ranker_paused file exists in job_dir.
+
+    Polls every 2 seconds. Writes a 'paused' event to the progress log on first
+    detection, and a 'resumed' event once the file is removed.
+    """
+    pause_file = _get_pause_file(job_dir)
+    if not os.path.exists(pause_file):
+        return  # Not paused — fast path
+
+    # Log the pause event once
+    await write_progress_async(log_lock, log_path, {"event": "paused"})
+    print("[PAUSE] Processing paused — waiting for resume signal...")
+
+    while os.path.exists(pause_file):
+        await asyncio.sleep(2)
+
+    # Log the resume event
+    await write_progress_async(log_lock, log_path, {"event": "resumed"})
+    print("[PAUSE] Resumed — continuing processing.")
 
 
 # ── DB Bootstrap ──────────────────────────────────────────────────────────────
@@ -983,6 +1702,7 @@ def ensure_database():
             "edu_degree_score": "INTEGER",
             "edu_gpa_score":    "INTEGER",
             "risk_flags":       "TEXT[]",
+            "review_flags":     "TEXT[]",
         }
         with conn.cursor() as cur:
             for col in missing:
@@ -1104,6 +1824,12 @@ def parse_name_from_txt(txt_path: str) -> str:
 # ── PDF Extraction ────────────────────────────────────────────────────────────
 
 def extract_pdf_text(pdf_path: str) -> str:
+    """Extract text from PDF with BDJobs multi-column layout handling and OCR fallback.
+
+    TASK 1: Tries pdfplumber first (preserves reading order better than PyPDF2).
+    If extracted text is very short (<200 chars), falls back to OCR (pytesseract
+    + pdf2image) to handle scanned/image-based CVs.
+    """
     try:
         import pdfplumber
         import warnings
@@ -1113,14 +1839,49 @@ def extract_pdf_text(pdf_path: str) -> str:
             with pdfplumber.open(pdf_path) as pdf:
                 for page in pdf.pages:
                     try:
+                        # Try standard text extraction first
                         page_text = page.extract_text()
-                        if page_text:
+                        if page_text and len(page_text.strip()) > 20:
                             text_parts.append(page_text)
+                            continue
+                        # BDJobs layouts often use tables — extract table cells as fallback
+                        tables = page.extract_tables()
+                        if tables:
+                            for table in tables:
+                                for row in table:
+                                    if row:
+                                        row_text = " ".join(str(c) for c in row if c)
+                                        if row_text.strip():
+                                            text_parts.append(row_text)
                     except Exception:
                         continue
-        return "\n".join(text_parts).strip()
+        extracted = "\n".join(text_parts).strip()
+        if len(extracted) >= SCORING_CONFIG.get("ocr_char_threshold", 200):
+            return extracted
     except Exception:
-        return ""
+        extracted = ""
+
+    # TASK 1 — OCR fallback for scanned/image-based PDFs
+    try:
+        import pytesseract
+        from pdf2image import convert_from_path
+        from PIL import Image
+        images = convert_from_path(pdf_path, dpi=200)
+        ocr_parts = []
+        for img in images:
+            try:
+                text = pytesseract.image_to_string(img, lang="eng")
+                if text:
+                    ocr_parts.append(text)
+            except Exception:
+                continue
+        ocr_text = "\n".join(ocr_parts).strip()
+        if ocr_text:
+            return f"[OCR_FALLBACK]\n{ocr_text}"
+    except Exception:
+        pass
+
+    return extracted
 
 
 # ── Text Cleaning / Truncation ────────────────────────────────────────────────
@@ -1152,6 +1913,101 @@ def smart_truncate(text: str, max_chars: int) -> str:
     if cut <= 0:
         cut = max_chars
     return window[:cut].rstrip()
+
+
+# BDJobs CV section headers we want to parse and normalize for the LLM.
+_BDJOBS_SECTIONS = [
+    ("Career Objective", "Career Objective"),
+    ("Career Summary", "Career Summary"),
+    ("Special Qualification", "Special Qualification"),
+    ("Employment History", "Employment History"),
+    ("Academic Qualification", "Academic Qualification"),
+    ("Training Summary", "Training Summary"),
+    ("Professional Qualification", "Professional Qualification"),
+    ("Career and Application Information", "Career and Application Info"),
+    ("Skills", "Skills"),
+    ("Accomplishment", "Accomplishment"),
+    ("Extra Curricular Activities", "Extra Curricular Activities"),
+    ("Language Proficiency", "Language Proficiency"),
+    ("Personal Details", "Personal Details"),
+    ("Reference", "References"),
+]
+
+_BDJOBS_HEADER_RE = re.compile(
+    r"(?:^|\n\s*)(?:\d+\.\s*)?(" + "|".join(re.escape(s) for s, _ in _BDJOBS_SECTIONS) + r")\s*:?",
+    re.IGNORECASE,
+)
+
+
+def parse_bdjobs_cv(text: str) -> dict[str, str]:
+    """Parse a BDJobs-format CV into structured sections.
+
+    BDJobs PDFs usually contain clearly labeled sections. We split the text
+    at those headers and return a dict of section -> content. Unmatched text
+    is kept under "_intro".
+    """
+    if not text:
+        return {}
+
+    # Remove page-break markers and collapse noisy whitespace
+    text = re.sub(r"\n?\s*page\s*\d+\s*\n?", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"\n?\s*---\s*PAGE\s*BREAK\s*---\s*\n?", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    sections: dict[str, str] = {}
+    current_label = "_intro"
+    current_lines: list[str] = []
+
+    for line in text.splitlines():
+        m = _BDJOBS_HEADER_RE.match(line)
+        if m:
+            if current_lines:
+                sections[current_label] = "\n".join(current_lines).strip()
+            raw_header = m.group(1).strip()
+            # Find normalized display name
+            display = raw_header
+            for candidate, norm in _BDJOBS_SECTIONS:
+                if candidate.lower() in raw_header.lower():
+                    display = norm
+                    break
+            current_label = display
+            current_lines = []
+            # Keep the rest of the line (after the header) as content if any
+            rest = line[m.end():].strip()
+            if rest and not rest.startswith(":"):
+                current_lines.append(rest.lstrip(":").strip())
+            continue
+        current_lines.append(line)
+
+    if current_lines:
+        sections[current_label] = "\n".join(current_lines).strip()
+
+    # Drop empty sections
+    return {k: v for k, v in sections.items() if v}
+
+
+def format_bdjobs_profile(text: str) -> str:
+    """Reformat BDJobs CV text into a clean, ordered section layout for the LLM.
+    Falls back to the original text if it does not look like BDJobs format."""
+    if not text:
+        return text
+
+    # Quick heuristic: does it contain BDJobs-style section headers?
+    if not _BDJOBS_HEADER_RE.search(text):
+        return text
+
+    sections = parse_bdjobs_cv(text)
+    ordered = []
+    for _, norm in _BDJOBS_SECTIONS:
+        if norm in sections:
+            ordered.append(f"[{norm}]\n{sections[norm]}")
+
+    # Include any unmatched intro text at the top
+    if sections.get("_intro"):
+        ordered.insert(0, f"[Header / Contact Info]\n{sections['_intro']}")
+
+    return "\n\n".join(ordered)
 
 
 def build_role_block(job_config: dict) -> str:
@@ -1201,10 +2057,13 @@ def build_prompt(
     jd_text: str,
     job_config: dict | None = None,
 ) -> str:
+    # Normalize BDJobs CV layout so the LLM sees the correct sections in order
     profile_clean = clean_text(profile_text)
+    profile_clean = format_bdjobs_profile(profile_clean)
     pdf_clean     = clean_text(pdf_text)
+    pdf_clean     = format_bdjobs_profile(pdf_clean)
 
-    # Prefer structured BDJobs profile first; append PDF text if room remains.
+    # Prefer structured BDJobs profile first; append uploaded CV text if room remains.
     combined_profile = smart_truncate(profile_clean, PROFILE_SOFT_CAP)
     if pdf_clean:
         room = PROFILE_SOFT_CAP - len(combined_profile)
@@ -1368,8 +2227,10 @@ def _fill_missing_fields(parsed: dict) -> dict:
                   "education_score", "culture_fit_score"]
     )
     if has_any_score:
-        # Partial parse: merge parsed data with neutral text defaults
-        base = {**_neutral_text_defaults(), **_default_scores_dict()}
+        # Partial parse: start with alarm defaults, then overlay neutral text
+        # defaults so missing reasoning/strengths/gaps are blank ("—") rather
+        # than the scary "no valid JSON" message.
+        base = {**_default_scores_dict(), **_neutral_text_defaults()}
         out = dict(base)
         for k in base:
             if k in parsed:
@@ -1405,6 +2266,7 @@ def _fill_missing_fields(parsed: dict) -> dict:
             out[list_key] = list(v) if v else []
         out[list_key] = out[list_key][:5]
     out["reasoning"] = str(out.get("reasoning", ""))[:500]
+    out["review_flags"] = list(out.get("review_flags") or [])[:10]
 
     # Sanity check: if all 5 dimension scores are identical and non-zero,
     # this is likely a degenerate LLM output — flag it
@@ -1417,7 +2279,7 @@ def _fill_missing_fields(parsed: dict) -> dict:
 
 
 def build_fallback_prompt(profile_text: str, job_label: str) -> str:
-    """Fallback prompt — shorter but still asks for strengths, gaps, and risk flags.
+    """Fallback prompt — shorter, only core scores (no strengths/gaps).
     Used when the full prompt fails (usually context-window overflow)."""
     trunc = smart_truncate(profile_text, 3500)
     return (
@@ -1430,10 +2292,7 @@ def build_fallback_prompt(profile_text: str, job_label: str) -> str:
         '  "education_score": int,\n'
         '  "culture_fit_score": int,\n'
         '  "experience_years": float,\n'
-        '  "strengths": [\"string\"],\n'
-        '  "gaps": [\"string\"],\n'
-        '  "risk_flags": [\"string\"],\n'
-        '  "recommendation": \"Shortlist\" | \"Maybe\" | \"Reject\",\n'
+        '  "recommendation": \"Shortlist\" | \"Maybe\" | \"Reject",\n'
         '  "reasoning": \"string\"\n'
         "}\n\n"
         "Candidate profile (truncated):\n"
@@ -1575,7 +2434,7 @@ async def call_ollama_async(
             content = body["message"]["content"]
             parsed = _safe_parse_ollama_response(content)
             if not parsed.get("_parsed_ok"):
-                print(f"[LLM-WARN] apply_id={apply_id} | Unparseable response ({len(content)} chars): {content[:300]!r}")
+                print(f"[LLM-WARN] Unparseable response ({len(content)} chars): {content[:300]!r}")
             # Verify we got at least one non-zero score or a non-empty reasoning
             # to avoid accepting pure-default placeholders when the model
             # genuinely returned nothing useful.
@@ -1662,11 +2521,11 @@ def compute_overall_score(scores: dict, job_config: dict | None = None) -> int:
         v = cfg.get(key)
         return int(v) if v is not None else int(default)
 
-    ws = _w("weight_skills",     50)
-    we = _w("weight_exp",        30)
-    wu = _w("weight_edu",        20)
-    wl = _w("weight_leadership", DEFAULT_LEADERSHIP_WEIGHT * 100)
-    wc = _w("weight_culture",    DEFAULT_CULTURE_FIT_WEIGHT * 100)
+    ws = _w("weight_skills",     SCORING_CONFIG["weight_skills"])
+    we = _w("weight_exp",        SCORING_CONFIG["weight_exp"])
+    wu = _w("weight_edu",        SCORING_CONFIG["weight_edu"])
+    wl = _w("weight_leadership", SCORING_CONFIG["weight_leadership"])
+    wc = _w("weight_culture",    SCORING_CONFIG["weight_culture"])
 
     total = max(1, ws + we + wu + wl + wc)
 
@@ -1686,44 +2545,70 @@ def compute_overall_score(scores: dict, job_config: dict | None = None) -> int:
     return max(0, min(100, int(round(overall))))
 
 
-def _score_to_recommendation(overall_score: int) -> str:
+def _score_to_recommendation(overall_score: int, reasoning: str | None = None) -> str:
     """Map computed overall_score to canonical ternary recommendation.
 
     This ensures consistency across all candidates — the LLM's subjective
     verdict is overridden by the objective weighted score.  Prevents the
     model from being overly conservative (e.g. 0 Shortlist across 200+
     ranked candidates because it never outputs the exact word "Shortlist").
+
+    Shortlisting also requires meaningful reasoning, so candidates with
+    empty, default, or missing reasoning are capped at "Maybe" even if
+    their score is high.
     """
     if overall_score >= 70:
-        return "Shortlist"
+        rec = "Shortlist"
     elif overall_score >= 50:
-        return "Maybe"
+        rec = "Maybe"
     else:
-        return "Reject"
+        rec = "Reject"
+
+    if rec == "Shortlist" and not _has_meaningful_reasoning(reasoning):
+        return "Maybe"
+    return rec
 
 
-def compute_education_score(scores: dict) -> int:
-    """Compute education_score deterministically from the three sub-scores.
+def _has_meaningful_reasoning(reasoning: str | None) -> bool:
+    """Return True if the reasoning string is non-empty and not a placeholder."""
+    if not reasoning:
+        return False
+    r = str(reasoning).strip()
+    if not r or r in ("—", "-", "n/a", "N/A"):
+        return False
+    placeholder = "The scoring model produced no valid JSON"
+    if r.startswith(placeholder):
+        return False
+    return len(r) > 10
 
-    Formula (matches the EDUCATION SCORING FORMULA injected into the LLM prompt):
-        education_score = round(tier * 0.50 + degree * 0.30 + gpa * 0.20)
 
-    BUG-03 fix: previously education_score was fully LLM-generated and could
-    drift from its own sub-scores (LLM hallucination). Now it is recomputed
-    server-side from edu_tier_score / edu_degree_score / edu_gpa_score.
-
-    Falls back to the LLM's education_score if all three sub-scores are zero
-    (i.e. the LLM did not emit them) so we never zero a legitimate score.
-    """
-    tier   = int(scores.get("edu_tier_score",   0) or 0)
+def compute_education_score(scores: dict, review_flags: list | None = None) -> int:
+    """Deterministic education_score with renormalization for missing components."""
+    review_flags = review_flags or []
+    tier = int(scores.get("edu_tier_score", 0) or 0)
     degree = int(scores.get("edu_degree_score", 0) or 0)
-    gpa    = int(scores.get("edu_gpa_score",    0) or 0)
-
+    gpa = int(scores.get("edu_gpa_score", 0) or 0)
     if tier == 0 and degree == 0 and gpa == 0:
         return max(0, min(100, int(scores.get("education_score", 0) or 0)))
-
-    computed = round(tier * 0.50 + degree * 0.30 + gpa * 0.20)
-    return max(0, min(100, int(computed)))
+    w_t, w_d, w_g = SCORING_CONFIG["edu_weight_tier"], SCORING_CONFIG["edu_weight_degree"], SCORING_CONFIG["edu_weight_gpa"]
+    avail, weights = [], []
+    if tier > 0:
+        avail.append(tier); weights.append(w_t)
+    else:
+        review_flags.append("edu_tier_score missing — tier excluded")
+    if degree > 0:
+        avail.append(degree); weights.append(w_d)
+    else:
+        review_flags.append("edu_degree_score missing — degree excluded")
+    if gpa > 0:
+        avail.append(gpa); weights.append(w_g)
+    else:
+        review_flags.append("edu_gpa_score missing — GPA excluded")
+    if not avail:
+        return max(0, min(100, int(scores.get("education_score", 0) or 0)))
+    total_w = sum(weights)
+    computed = sum(v * (w / total_w) for v, w in zip(avail, weights))
+    return max(0, min(100, int(round(computed))))
 
 
 # ── DB Writes ─────────────────────────────────────────────────────────────────
@@ -1751,7 +2636,7 @@ def upsert_candidate(cur, job_label, apply_id, name, txt_path, pdf_path,
              email, mobile, location, degree, university,
              experience_detail, age,
              expected_salary, current_salary, application_date,
-             bdjobs_score, has_uploaded_cv)
+             bdjobs_score, has_uploaded_cv, review_flags)
         VALUES
             (%s,%s,%s,%s,%s, %s,%s,
              %s,%s,%s,%s,%s,%s,
@@ -1761,7 +2646,7 @@ def upsert_candidate(cur, job_label, apply_id, name, txt_path, pdf_path,
              %s,%s,%s,%s,%s,
              %s,%s,
              %s,%s,%s,
-             %s,%s)
+             %s,%s,%s)
         ON CONFLICT (job_label, apply_id) DO UPDATE SET
             candidate_name    = COALESCE(NULLIF(EXCLUDED.candidate_name, ''), candidates.candidate_name),
             profile_txt_path  = EXCLUDED.profile_txt_path,
@@ -1796,7 +2681,8 @@ def upsert_candidate(cur, job_label, apply_id, name, txt_path, pdf_path,
             current_salary    = COALESCE(NULLIF(EXCLUDED.current_salary, ''), candidates.current_salary),
             application_date  = COALESCE(NULLIF(EXCLUDED.application_date, ''), candidates.application_date),
             bdjobs_score      = COALESCE(NULLIF(EXCLUDED.bdjobs_score, ''), candidates.bdjobs_score),
-            has_uploaded_cv   = COALESCE(EXCLUDED.has_uploaded_cv, candidates.has_uploaded_cv)
+            has_uploaded_cv   = COALESCE(EXCLUDED.has_uploaded_cv, candidates.has_uploaded_cv),
+            review_flags      = EXCLUDED.review_flags
     """, (
         job_label, apply_id, name, txt_path, pdf_path,
         pdf_text_chars, jd_used,
@@ -1818,6 +2704,7 @@ def upsert_candidate(cur, job_label, apply_id, name, txt_path, pdf_path,
         meta.get("application_date", ""),
         meta.get("bdjobs_score", ""),
         meta.get("has_uploaded_cv", False),
+        scores.get("review_flags", []),
     ))
 
 
@@ -1929,6 +2816,7 @@ async def process_one(
     conn,
     state: dict,
     job_config: dict | None = None,
+    job_dir: str = "",
 ) -> tuple[str, str, str | None]:
     """Process a single resume. Returns (apply_id, name, error_msg_or_None)."""
     stem = os.path.splitext(os.path.basename(txt_path))[0]
@@ -1958,22 +2846,28 @@ async def process_one(
             with open(txt_path, encoding="utf-8", errors="replace") as f:
                 return f.read()
         profile_text = await asyncio.to_thread(_read_txt)
-
-        _profile_stripped = profile_text.strip() if profile_text else ""
-        if len(_profile_stripped) < 150:
-            raise ValueError(
-                f"EMPTY_PROFILE: Profile text is only {len(_profile_stripped)} chars "
-                f"(minimum 150 required). "
-                f"The resume text file may be empty, corrupted, or from a scanned PDF. "
-                f"File: {txt_path}"
-            )
-        profile_text = _profile_stripped   # use stripped version
+        profile_text = (profile_text or "").strip()
 
         pdf_text = ""
         pdf_text_chars = 0
         if pdf_path and os.path.exists(pdf_path):
             pdf_text = await asyncio.to_thread(extract_pdf_text, pdf_path)
             pdf_text_chars = len(pdf_text) if pdf_text else 0
+
+        # BDJobs fix: choose the richest text source for the LLM and build
+        # structured features from the canonical BDJobs CV (usually the PDF).
+        # The profiles_txt file is often just a metadata stub.
+        llm_profile_text, pdf_for_llm, features = await asyncio.to_thread(
+            select_profile_and_features, profile_text, pdf_text, pdf_text_chars >= 150
+        )
+        # If the uploaded PDF is missing or too short, the stub still needs a minimum.
+        if len(llm_profile_text) < 150 and pdf_text_chars < 150:
+            raise ValueError(
+                f"EMPTY_PROFILE: Profile text is only {len(profile_text)} chars "
+                f"and uploaded CV has only {pdf_text_chars} chars. "
+                f"The resume text file may be empty, corrupted, or from a scanned PDF. "
+                f"File: {txt_path}"
+            )
     except Exception as e:
         err_msg = str(e)
         err_type = classify_error(err_msg, fallback_attempted=False)
@@ -2000,13 +2894,21 @@ async def process_one(
             "fallback": False,
         })
         tqdm.write(f"  ERR {apply_id} | {name[:30]} | {err_type} | {err_msg[:60]}")
-        return apply_id, name, err_msg
+        return apply_id, name, err_msg, txt_path
+
+    # ── PAUSE CHECK: wait if user paused processing ─────────────────────
+    if job_dir:
+        await _wait_if_paused(job_dir, log_lock, log_path)
 
     # ── OLLAMA: semaphore only guards the GPU call ─────────────────────────
     try:
         async with sem:
+            # Re-check pause after acquiring the semaphore. This catches tasks
+            # that passed the earlier check before the pause file was created.
+            if job_dir:
+                await _wait_if_paused(job_dir, log_lock, log_path)
             raw = await call_ollama_async(
-                session, profile_text, pdf_text, job, jd_text, job_config,
+                session, llm_profile_text, pdf_for_llm, job, jd_text, job_config,
             )
     except Exception as e:
         err_msg = str(e)
@@ -2018,15 +2920,26 @@ async def process_one(
             try:
                 tqdm.write(f"  RTRY {apply_id} | {name[:30]} | fallback prompt")
                 async with sem:
+                    if job_dir:
+                        await _wait_if_paused(job_dir, log_lock, log_path)
                     raw_fb = await call_ollama_async(
-                        session, profile_text, "", job, "", job_config,
+                        session, llm_profile_text, pdf_for_llm, job, "", job_config,
                         retries=2, use_fallback=True,
                     )
+                review_flags_fb: list[str] = []
                 scores = validate_score(raw_fb)
                 scores["recommendation"] = normalize_verdict(scores.get("recommendation"))
-                scores["education_score"] = compute_education_score(scores)
+                enrich_scores_with_features(scores, features, meta, cv_text=llm_profile_text or profile_text)
+                institution = meta.get("university", "")
+                if not institution:
+                    institution = _extract_university_from_text(llm_profile_text or profile_text or "")
+                tier_score, tier_flags = compute_university_tier_score(institution)
+                if tier_score > 0:
+                    scores["edu_tier_score"] = tier_score
+                review_flags_fb.extend(tier_flags)
+                scores["education_score"] = compute_education_score(scores, review_flags_fb)
                 scores["overall_score"]   = compute_overall_score(scores, job_config)
-                scores["recommendation"]  = _score_to_recommendation(scores["overall_score"])
+                scores["review_flags"]    = review_flags_fb[:10]
                 async with db_lock:
                     def _write_fb():
                         with conn.cursor() as cur:
@@ -2045,12 +2958,20 @@ async def process_one(
                         state["pending"] = 0
                 # If fallback produced empty strengths/gaps, enrich with rule-based extraction
                 if not scores.get("strengths") and not scores.get("gaps"):
-                    rule_assess = extract_rule_based_assessment(profile_text)
+                    rule_assess = extract_rule_based_assessment(llm_profile_text or profile_text, features)
                     scores["strengths"] = rule_assess["strengths"]
                     scores["gaps"] = rule_assess["gaps"]
                     scores["risk_flags"] = rule_assess["risk_flags"]
-                    # Re-write to DB with enriched data
-                    async with db_lock:
+
+                # Ensure the AI Summary (reasoning) is never empty, even in fallback.
+                if not scores.get("reasoning") or str(scores.get("reasoning")).strip() in ("", "—", "-"):
+                    scores["reasoning"] = generate_reasoning_from_assessment(llm_profile_text or profile_text, scores, features)
+
+                # Shortlist requires meaningful reasoning, not just a high score.
+                scores["recommendation"] = _score_to_recommendation(scores["overall_score"], scores.get("reasoning"))
+
+                # Re-write to DB with enriched data
+                async with db_lock:
                         def _write_enriched():
                             with conn.cursor() as cur:
                                 upsert_candidate(
@@ -2069,7 +2990,7 @@ async def process_one(
                     "recommendation": scores["recommendation"],
                 })
                 tqdm.write(f"  OK* {apply_id} | {name[:30]} | {scores['overall_score']} | fallback")
-                return apply_id, name, None
+                return apply_id, name, None, txt_path
             except Exception as e2:
                 err_msg = str(e2)
                 err_type = classify_error(err_msg, fallback_attempted=True)
@@ -2099,21 +3020,38 @@ async def process_one(
             "fallback": fallback_used,
         })
         tqdm.write(f"  ERR {apply_id} | {name[:30]} | {err_type} | {err_msg[:60]}")
-        return apply_id, name, err_msg
+        return apply_id, name, err_msg, txt_path
 
     # ── POST-PROCESS: validation & DB write outside semaphore ─────────────
+    review_flags: list[str] = []
     scores = validate_score(raw)
     scores["recommendation"] = normalize_verdict(scores.get("recommendation"))
-    scores["education_score"] = compute_education_score(scores)
+    enrich_scores_with_features(scores, features, meta, cv_text=llm_profile_text or profile_text)
+    institution = meta.get("university", "")
+    if not institution:
+        institution = _extract_university_from_text(llm_profile_text or profile_text or "")
+    tier_score, tier_flags = compute_university_tier_score(institution)
+    if tier_score > 0:
+        scores["edu_tier_score"] = tier_score
+    review_flags.extend(tier_flags)
+    scores["education_score"] = compute_education_score(scores, review_flags)
     scores["overall_score"]   = compute_overall_score(scores, job_config)
-    scores["recommendation"]  = _score_to_recommendation(scores["overall_score"])
+    scores["review_flags"]    = review_flags[:10]
 
     # If main path produced empty strengths/gaps, enrich with rule-based extraction
     if not scores.get("strengths") and not scores.get("gaps"):
-        rule_assess = extract_rule_based_assessment(profile_text)
+        rule_assess = extract_rule_based_assessment(llm_profile_text or profile_text, features)
         scores["strengths"] = rule_assess["strengths"]
         scores["gaps"] = rule_assess["gaps"]
         scores["risk_flags"] = rule_assess["risk_flags"]
+
+    # Ensure the AI Summary (reasoning) is never empty. If the LLM omitted it,
+    # generate a rule-based summary from the profile and the scores.
+    if not scores.get("reasoning") or str(scores.get("reasoning")).strip() in ("", "—", "-"):
+        scores["reasoning"] = generate_reasoning_from_assessment(llm_profile_text or profile_text, scores, features)
+
+    # Shortlist requires meaningful reasoning, not just a high score.
+    scores["recommendation"] = _score_to_recommendation(scores["overall_score"], scores.get("reasoning"))
 
     async with db_lock:
         def _write():
@@ -2140,7 +3078,7 @@ async def process_one(
         "recommendation": scores["recommendation"],
     })
     tqdm.write(f"  OK  {apply_id} | {name[:30]} | {scores['overall_score']} | {scores['recommendation']}")
-    return apply_id, name, None
+    return apply_id, name, None, txt_path
 
 
 def generate_error_report(
@@ -2242,6 +3180,28 @@ def generate_error_report(
     return report_path
 
 
+def _find_duplicate_ranker_pid(job_label: str) -> int | None:
+    """Return PID of another ranker.py process for the same job, or None."""
+    try:
+        import psutil
+    except Exception:
+        return None
+    current_pid = os.getpid()
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline") or []
+            cmdline_str = " ".join(str(a) for a in cmdline)
+            if (
+                proc.info["pid"] != current_pid
+                and "ranker.py" in cmdline_str
+                and f"--job {job_label}" in cmdline_str
+            ):
+                return proc.info["pid"]
+        except Exception:
+            continue
+    return None
+
+
 async def main_async(args):
     # Ollama pre-flight
     try:
@@ -2276,6 +3236,13 @@ async def main_async(args):
     meta_csv = os.path.join(job_dir, f"{args.job}_metadata.csv")
     log_path = os.path.join(job_dir, "_ranker_progress.jsonl")
 
+    # Guard against duplicate rankers for the same job
+    dup = _find_duplicate_ranker_pid(args.job)
+    if dup:
+        print(f"[INIT] Another ranker is already running for job '{args.job}' (PID {dup}).")
+        print("[INIT] Use the Processing Status page to pause/resume or wait for it to finish.")
+        sys.exit(3)
+
     if not os.path.isdir(txt_dir):
         print(f"ERROR: profiles_txt not found at {txt_dir}")
         return
@@ -2307,7 +3274,7 @@ async def main_async(args):
                     updated_at = NOW()
             """, (args.job, args.department))
         conn.autocommit = False
-        print(f"[JOB] Registered: {args.job} → Department: {args.department}")
+        print(f"[JOB] Registered: {args.job} -> Department: {args.department}")
     except Exception as e:
         print(f"[JOB] Warning: could not upsert jobs row: {e}")
 
@@ -2331,9 +3298,40 @@ async def main_async(args):
     txt_files = sorted(glob.glob(os.path.join(txt_dir, "*.txt")))
     print(f"Found {len(txt_files)} profiles | Job: {args.job} | Workers: {args.workers}")
 
-    # Initialise progress log
-    with open(log_path, "w", encoding="utf-8") as f:
-        f.write("")
+    # ── Durable checkpoint: load or initialise ────────────────────────────
+    checkpoint = load_checkpoint(job_dir)
+    is_resuming = False
+    if checkpoint and checkpoint.get("job") == args.job:
+        is_resuming = True
+        cp_files = checkpoint.get("files", {})
+        # Reconcile: any new txt files not in checkpoint get added as pending
+        for p in txt_files:
+            bn = os.path.basename(p)
+            if bn not in cp_files:
+                cp_files[bn] = {"status": "pending", "updated_at": datetime.datetime.now().isoformat()}
+        # Remove checkpoint entries for files that no longer exist
+        for bn in list(cp_files.keys()):
+            if not os.path.exists(os.path.join(txt_dir, bn)):
+                del cp_files[bn]
+        checkpoint["total_files"] = len(txt_files)
+        checkpoint["last_updated"] = datetime.datetime.now().isoformat()
+        save_checkpoint(job_dir, checkpoint)
+        print(f"[CHECKPOINT] Resuming job '{args.job}' ({len(cp_files)} files tracked).")
+    else:
+        checkpoint = {
+            "job": args.job,
+            "started_at": datetime.datetime.now().isoformat(),
+            "last_updated": datetime.datetime.now().isoformat(),
+            "total_files": len(txt_files),
+            "files": {},
+        }
+        save_checkpoint(job_dir, checkpoint)
+        print(f"[CHECKPOINT] Fresh start — tracking {len(txt_files)} files.")
+
+    # Don't truncate the progress log on resume — history is preserved.
+    if not is_resuming:
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("")
 
     log_lock = asyncio.Lock()
     db_lock  = asyncio.Lock()
@@ -2360,22 +3358,50 @@ async def main_async(args):
             return
         print(f"[Re-rank] Single candidate: {target_id}")
     else:
-        pending_files = [p for p in txt_files
-                         if _extract_apply_id_from_path(p) not in existing]
-    skipped = len(txt_files) - len(pending_files)
-    if skipped:
-        print(f"[Skip] {skipped} already-ranked candidates (use --rerank to force).")
+        cp_files = checkpoint.get("files", {})
+        pending_files = []
+        skipped = 0
+        for p in txt_files:
+            bn = os.path.basename(p)
+            cp_status = cp_files.get(bn, {}).get("status")
+            if cp_status == "done":
+                skipped += 1
+            elif cp_status == "error":
+                # Retry errored files on resume
+                pending_files.append(p)
+            else:
+                pending_files.append(p)
+        # Also skip DB-known ranked files if not already tracked as done
+        if not args.rerank:
+            for p in txt_files:
+                if _extract_apply_id_from_path(p) in existing and p not in pending_files:
+                    skipped += 1
+                    cp_files[os.path.basename(p)] = {"status": "done", "updated_at": datetime.datetime.now().isoformat()}
+        if skipped:
+            print(f"[Skip] {skipped} already-ranked candidates (checkpoint or DB).")
 
-    # Write start event AFTER we know how many are actually pending
-    await write_progress_async(log_lock, log_path, {
-        "event":          "start",
-        "job":            args.job,
-        "total":          len(txt_files),
-        "pending":        len(pending_files),
-        "already_ranked": skipped,
-        "rerank":         args.rerank,
-        "workers":        args.workers,
-    })
+    total_input = len(pending_files)  # TASK 6: for input/output reconciliation
+
+    # Write start / resume event AFTER we know how many are actually pending
+    if is_resuming:
+        await write_progress_async(log_lock, log_path, {
+            "event":          "resume",
+            "job":            args.job,
+            "total":          len(txt_files),
+            "pending":        len(pending_files),
+            "already_ranked": skipped,
+            "workers":        args.workers,
+        })
+    else:
+        await write_progress_async(log_lock, log_path, {
+            "event":          "start",
+            "job":            args.job,
+            "total":          len(txt_files),
+            "pending":        len(pending_files),
+            "already_ranked": skipped,
+            "rerank":         args.rerank,
+            "workers":        args.workers,
+        })
 
     sem = asyncio.Semaphore(args.workers)
     state = {"pending": 0}
@@ -2388,10 +3414,12 @@ async def main_async(args):
         """Write a heartbeat every 30s so the UI knows the ranker is alive."""
         while True:
             await asyncio.sleep(30)
+            is_paused = os.path.exists(_get_pause_file(job_dir))
             await write_progress_async(log_lock, log_path, {
                 "event": "heartbeat",
                 "ts": datetime.datetime.now().isoformat(),
                 "pending_remaining": len(pending_files) - completed,
+                "paused": is_paused,
             })
 
     connector = aiohttp.TCPConnector(limit=args.workers * 2)
@@ -2411,17 +3439,20 @@ async def main_async(args):
             process_one(
                 txt_path, args.job, jd_text, jd_used_label, metadata,
                 pdf_dir, session, sem, db_lock, log_lock, log_path, conn, state,
-                job_config,
+                job_config, job_dir,
             )
             for txt_path in pending_files
         ]
         heartbeat_task = asyncio.create_task(_heartbeat())
         completed = 0
         for coro in tqdm_asyncio.as_completed(tasks, total=len(tasks), desc="Ranking"):
-            apply_id, name, err = await coro
+            apply_id, name, err, txt_path = await coro
             completed += 1
+            bn = os.path.basename(txt_path)
+            cp_files = checkpoint.get("files", {})
             if err:
                 errors.append((apply_id, name, err))
+                cp_files[bn] = {"status": "error", "error": str(err)[:200], "updated_at": datetime.datetime.now().isoformat()}
                 # CIRCUIT BREAKER: if first 5 all fail with gateway/connection errors,
                 # abort early — the VM is likely down or unreachable.
                 if completed <= 5 and len(errors) == completed:
@@ -2434,6 +3465,10 @@ async def main_async(args):
                             if not t.done():
                                 t.cancel()
                         break
+            else:
+                cp_files[bn] = {"status": "done", "updated_at": datetime.datetime.now().isoformat()}
+            checkpoint["last_updated"] = datetime.datetime.now().isoformat()
+            save_checkpoint(job_dir, checkpoint)
 
     # Stop heartbeat
     heartbeat_task.cancel()
@@ -2461,15 +3496,23 @@ async def main_async(args):
     await write_progress_async(log_lock, log_path, {
         "event":          "done",
         "total":          len(txt_files),
-        "pending":        len(pending_files),
+        "pending":        max(0, len(pending_files) - completed),
+        "completed":      completed,
         "already_ranked": skipped,
         "errors":         len(errors),
     })
 
-    print(f"\nDone. Ranked: {len(pending_files) - len(errors)} | Skipped: {skipped} | Errors: {len(errors)}")
+    print(f"\nDone. Completed: {completed} | Skipped: {skipped} | Errors: {len(errors)}")
     if errors:
         for aid, nm, msg in errors[:20]:
             print(f"  {aid} | {nm} | {msg[:100]}")
+
+    # TASK 6 — Input/Output Reconciliation: ensure no candidates were silently dropped
+    total_output = (len(pending_files) - len(errors)) + len(errors) + skipped
+    if total_input != total_output:
+        print(f"\n[RECONCILE-WARN] Input count ({total_input}) != Output count ({total_output}) — some candidates may have been lost!")
+    else:
+        print(f"[RECONCILE-OK] Input count ({total_input}) == Output count ({total_output}) — all candidates accounted for.")
 
     # ── Structured error report (JSON) ──────────────────────────────────────
     generate_error_report(

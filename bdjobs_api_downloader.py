@@ -59,17 +59,46 @@ def _now() -> str:
     return datetime.now().isoformat()
 
 
+class SessionExpiredError(RuntimeError):
+    """Raised when the BDJobs API returns a non-JSON (login/HTML) response,
+    indicating the cached JWT session has expired or is invalid."""
+
+
 def _load_session(path: str = SESSION_FILE) -> dict | None:
-    """Load cached JWT + company info."""
+    """Load cached JWT + company info.
+
+    Returns None if the cache is missing, malformed, or the JWT has expired
+    (so the caller re-logs in instead of sending a dead token that the API
+    answers with an HTML login page).
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        # simple validity: token exists
-        if data.get("token"):
-            return data
+        token = data.get("token")
+        if not token:
+            return None
+        if _is_jwt_expired(token):
+            print("[INFO] Cached session JWT has expired — will re-login.", flush=True)
+            return None
+        return data
     except Exception:
         pass
     return None
+
+
+def _is_jwt_expired(token: str, leeway_secs: int = 60) -> bool:
+    """Return True if the JWT's exp claim is in the past (with small leeway).
+
+    If the token has no exp claim, treat it as NOT expired (let the API decide).
+    """
+    claims = _decode_jwt_payload(token)
+    exp = claims.get("exp")
+    if exp is None:
+        return False
+    try:
+        return time.time() >= (float(exp) - leeway_secs)
+    except (ValueError, TypeError):
+        return False
 
 
 def _save_session(data: dict, path: str = SESSION_FILE) -> None:
@@ -113,7 +142,10 @@ class BDJobsAPIClient:
         self.session.headers.update({
             "Authorization": f"Bearer {token}",
             "Accept": "application/json, text/plain, */*",
-            "Accept-Encoding": "gzip, deflate, br",
+            # NOTE: do NOT advertise "br" (brotli) — the brotli/brotlicffi
+            # package is not installed, so requests cannot decode a brotli
+            # response and r.text comes back empty (JSONDecodeError at char 0).
+            "Accept-Encoding": "gzip, deflate",
             "Accept-Language": "en-US,en;q=0.9,bn;q=0.8",
             "Content-Type": "application/json",
             "Cache-Control": "no-cache",
@@ -141,7 +173,7 @@ class BDJobsAPIClient:
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/plain, */*",
-                "Accept-Encoding": "gzip, deflate, br",
+                "Accept-Encoding": "gzip, deflate",
                 "Accept-Language": "en-US,en;q=0.9,bn;q=0.8",
                 "Cache-Control": "no-cache",
                 "Origin": REC_BASE,
@@ -309,7 +341,37 @@ class BDJobsAPIClient:
             r = self.session.get(url, timeout=30)
             print(f"[DEBUG] Page {pg} HTTP {r.status_code}", flush=True)
             r.raise_for_status()
-            data = r.json()
+            ctype = r.headers.get("Content-Type", "")
+            cenc = r.headers.get("Content-Encoding", "")
+            raw = r.content or b""
+            text = r.text or ""
+            body_head = text.lstrip()[:1].lower()
+            if "application/json" not in ctype and body_head == "<":
+                # BDJobs returned an HTML login page with HTTP 200,
+                # which means the cached JWT is no longer accepted by the API.
+                raise SessionExpiredError(
+                    "BDJobs API returned an HTML page instead of JSON (likely an "
+                    "expired/invalid session). Re-login is required."
+                )
+            if not raw or not text.strip():
+                # Empty body. Most common cause: server used a Content-Encoding
+                # (e.g. brotli) the client cannot decode. Report it clearly.
+                raise RuntimeError(
+                    f"BDJobs API returned an EMPTY body on page {pg} "
+                    f"(HTTP {r.status_code}, Content-Type={ctype!r}, "
+                    f"Content-Encoding={cenc!r}, raw_bytes={len(raw)}). "
+                    "If Content-Encoding is 'br', install the 'brotli' package or "
+                    "remove 'br' from the Accept-Encoding header."
+                )
+            try:
+                data = r.json()
+            except (json.JSONDecodeError, ValueError) as e:
+                preview = raw[:200]
+                raise RuntimeError(
+                    f"BDJobs API returned an unparseable body on page {pg} "
+                    f"(Content-Type={ctype!r}, Content-Encoding={cenc!r}, "
+                    f"raw_bytes={len(raw)}, preview={preview!r})."
+                ) from e
             error = data.get("Error")
             if error not in (0, "0", None, ""):
                 print(f"[ERROR] API error on page {pg}: {error}", flush=True)
@@ -504,7 +566,38 @@ def main():
 
     # ── Fetch applicants ──────────────────────────────────────────────
     print(f"[INFO] Fetching applicants for job {args.jobno} ...", flush=True)
-    applicants = client.fetch_applicants(args.jobno)
+    try:
+        applicants = client.fetch_applicants(args.jobno)
+    except SessionExpiredError as e:
+        print(f"[WARN] {e}", flush=True)
+        # Auto-recover: discard the stale cache and re-login with credentials.
+        if args.username and args.password:
+            print("[INFO] Cached session is invalid — re-logging in ...", flush=True)
+            try:
+                if os.path.exists(SESSION_FILE):
+                    os.remove(SESSION_FILE)
+            except OSError:
+                pass
+            client = BDJobsAPIClient.login(args.username, args.password)
+            session = {
+                "token": client.token,
+                "company_id": client.company_id,
+                "encrypt_id": client.encrypt_id,
+                "saved_at": _now(),
+            }
+            _save_session(session)
+            if not client.company_id:
+                print("[ERROR] Could not determine CompanyId after re-login. Aborting.", flush=True)
+                sys.exit(1)
+            applicants = client.fetch_applicants(args.jobno)
+        else:
+            print(
+                "[ERROR] The BDJobs session has expired and no credentials were provided "
+                "to re-login. Re-run with --username and --password (or --force-login), "
+                "or set BDJOBS_USER / BDJOBS_PASS.",
+                flush=True,
+            )
+            sys.exit(1)
     print(f"[OK] Fetched {len(applicants)} unique applicants", flush=True)
 
     if not applicants:

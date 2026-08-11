@@ -419,9 +419,15 @@ else:
                             st.success(f"✓ Removed {deleted} candidate(s).")
                         except Exception as e:
                             st.error(f"DB cleanup failed: {e}")
-                        # 3. Delete progress file
+                        # 3. Delete progress file and pause file
                         try:
                             _progress_path.unlink()
+                        except Exception:
+                            pass
+                        try:
+                            _pf = RESUMES_BASE / selected / "_ranker_paused"
+                            if _pf.exists():
+                                _pf.unlink()
                         except Exception:
                             pass
                         st.session_state.pop(confirm_key, None)
@@ -433,19 +439,87 @@ else:
                         st.rerun()
     
     events = _peek_events
-    
+
+    # ── Pause/Resume Controls (main content area) ─────────────────────────────────
+    _pause_file = RESUMES_BASE / selected / "_ranker_paused"
+    _is_paused = _pause_file.exists()
+    _is_running = _progress_path.exists() and not _peek_done
+
+    if _is_running:
+        st.markdown("---")
+        pause_col1, pause_col2, pause_col3 = st.columns([2, 2, 6])
+        with pause_col1:
+            if _is_paused:
+                if st.button("▶️ Resume Processing", type="primary", use_container_width=True, key="resume_ranker"):
+                    try:
+                        _pause_file.unlink()
+                        st.success("✅ Resumed! Processing will continue shortly.")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to resume: {e}")
+            else:
+                if st.button("⏸️ Pause Processing", type="secondary", use_container_width=True, key="pause_ranker"):
+                    try:
+                        _pause_file.write_text(
+                            json.dumps({"paused_at": datetime.datetime.now().isoformat(), "paused_by": "ui"}),
+                            encoding="utf-8",
+                        )
+                        st.warning("⏸️ Pausing... Current candidate will finish, then processing halts.")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to pause: {e}")
+        with pause_col2:
+            if _is_paused:
+                st.warning("⏸️ **PAUSED**")
+            else:
+                st.success("🟢 **Running**")
+
+        if _is_paused:
+            # Show pause duration
+            try:
+                pause_data = json.loads(_pause_file.read_text(encoding="utf-8"))
+                paused_at = datetime.datetime.fromisoformat(pause_data.get("paused_at", ""))
+                pause_duration = datetime.datetime.now() - paused_at
+                mins = int(pause_duration.total_seconds() // 60)
+                secs = int(pause_duration.total_seconds() % 60)
+                st.info(f"⏸️ Processing has been paused for **{mins}m {secs}s**. "
+                        f"Click **Resume Processing** to continue ranking candidates.")
+            except Exception:
+                st.info("⏸️ Processing is paused. Click **Resume Processing** to continue.")
+        st.markdown("---")
+
     # ── Parse events ──────────────────────────────────────────────────────────────
-    
-    start_ev = next((e for e in events if e.get("event") == "start"), None)
-    done_ev  = next((e for e in reversed(events) if e.get("event") == "done"), None)
-    oks      = [e for e in events if e.get("event") in ("ok", "ok_fallback")]
-    errs     = [e for e in events if e.get("event") == "error"]
+    # Use the LATEST run only. Each new start or resume event resets the run, so
+    # ignore ok/error events from earlier runs.
+    start_ev = None
+    run_start_idx = -1
+    for i, e in enumerate(events):
+        if e.get("event") in ("start", "resume"):
+            start_ev = e
+            run_start_idx = i
+    # If there is a done event after the last start/resume, use it; otherwise
+    # look at the latest done event overall.
+    done_ev = None
+    if run_start_idx >= 0:
+        for e in reversed(events[run_start_idx:]):
+            if e.get("event") == "done":
+                done_ev = e
+                break
+    if not done_ev:
+        done_ev = next((e for e in reversed(events) if e.get("event") == "done"), None)
+    latest_events = events[run_start_idx:] if run_start_idx >= 0 else events
+    oks      = [e for e in latest_events if e.get("event") in ("ok", "ok_fallback")]
+    errs     = [e for e in latest_events if e.get("event") == "error"]
     
     total_files   = (start_ev or {}).get("total", len(oks) + len(errs))
-    pending_total = (start_ev or {}).get("pending", total_files)
     already_ranked = (start_ev or {}).get("already_ranked", 0)
     workers       = (start_ev or {}).get("workers", "?")
     processed     = len(oks) + len(errs)
+    # Pending must be computed dynamically; the 'pending' field in the start/resume
+    # event is the initial count and never changes as files complete.
+    pending_total = max(0, total_files - already_ranked - processed)
     
     # ETA + speed calc from first ok/error timestamp to last, / processed -> avg; times remaining.
     eta_str = "—"
